@@ -6,6 +6,9 @@
 # Gymnasium-compatible trading environment for PPO.
 # Observation = frozen GRU latent state only (64-dim).
 # Long-only, single-position, sparse reward on SELL.
+#
+# Axis A: env_version (semantic meaning of observations/rewards)
+# Axis B: episode_mode (how episodes are constructed)
 # ============================================================
 
 from typing import Dict, Tuple, Optional
@@ -40,17 +43,42 @@ class TradingEnv(gym.Env):
         encoder_ckpt_path: str,
         feature_cols: list,
         env_version: str = "v1",
+        episode_mode: str = "rolling_window",
+        window_length: Optional[int] = 252,
+        random_start: bool = True,
         transaction_cost: float = 0.001,
         device: str = "cpu",
     ):
         super().__init__()
 
         # --------------------------------------------------------
-        # Environment version guard
+        # Environment version guard (Axis A)
         # --------------------------------------------------------
         assert env_version == "v1", "Only TradingEnv v1 is implemented"
 
         self.env_version = env_version
+
+        # --------------------------------------------------------
+        # Episode construction mode (Axis B)
+        #
+        # episode_mode:
+        #   - "full_history"  : one episode = full symbol history
+        #   - "rolling_window": fixed-length sub-trajectory
+        #
+        # NOTE:
+        #   This affects episode boundaries ONLY.
+        #   Observation and reward semantics remain unchanged.
+        # --------------------------------------------------------
+        assert episode_mode in ("full_history", "rolling_window")
+        self.episode_mode = episode_mode
+        self.window_length = window_length
+        self.random_start = random_start
+
+        if self.episode_mode == "rolling_window":
+            assert (
+                self.window_length is not None
+            ), "window_length must be set for rolling_window episodes"
+
         self.transaction_cost = transaction_cost
         self.device = device
 
@@ -113,6 +141,8 @@ class TradingEnv(gym.Env):
         # --------------------------------------------------------
         self.current_symbol: Optional[str] = None
         self.df: Optional[pd.DataFrame] = None
+
+        # Episode boundaries (set in reset)
         self.current_step: int = 0
         self.last_step: int = 0
 
@@ -136,9 +166,28 @@ class TradingEnv(gym.Env):
         assert self.current_symbol is not None
         self.df = self.data_by_symbol[self.current_symbol].reset_index(drop=True)
 
-        # Start after minimum window length (30 days)
-        self.current_step = 29
-        self.last_step = len(self.df) - 1
+        # --------------------------------------------------------
+        # Episode construction (Axis B)
+        #
+        # Start index is constrained to ensure a valid
+        # 30-day encoder window at every step.
+        # --------------------------------------------------------
+        min_start = 29  # encoder requires [t-29 : t]
+
+        if self.episode_mode == "full_history":
+            self.current_step = min_start
+            self.last_step = len(self.df) - 1
+
+        elif self.episode_mode == "rolling_window":
+            max_start = len(self.df) - self.window_length - 1
+            start = (
+                self.np_random.integers(min_start, max_start)
+                if self.random_start
+                else min_start
+            )
+
+            self.current_step = start
+            self.last_step = start + self.window_length
 
         # Reset position state
         self.position = 0
@@ -149,6 +198,7 @@ class TradingEnv(gym.Env):
 
         info = {
             "symbol": self.current_symbol,
+            "episode_mode": self.episode_mode,
         }
 
         return obs, info
@@ -179,7 +229,6 @@ class TradingEnv(gym.Env):
             if self.position == 1:
                 assert self.entry_price is not None
                 raw_return = (close_price - self.entry_price) / self.entry_price
-
                 reward = raw_return - self.transaction_cost
 
                 # Exit position
