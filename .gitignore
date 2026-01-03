@@ -1,0 +1,7 @@
+backend/data/processed/*.csv
+backend/.env
+backend/utils/generate_kite_tokens
+backend/utils/__pycache__/
+**/__pycache__/
+*.pyc
+backend/utils/test_kite_auth

@@ -4,4 +4,7 @@ GET http://localhost:8000/
 ### Test 2: Get Features (RSI, MACD)
 # This test verifies the /api/v1/features endpoint is working.
 # If this returns 200 OK, the chart will load.
-GET http://localhost:8000/api/v1/features/AAPL?start_date=2021-01-01
+GET http://localhost:8000/api/v1/features/TCS?start_date=2021-01-01
+
+### Test 3: Get Features (RSI, MACD)
+GET http://localhost:8000/api/v1/features/SBIN?start_date=2022-01-01

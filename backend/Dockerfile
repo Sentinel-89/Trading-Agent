@@ -1,15 +1,18 @@
 # Use the Python 3.14 base image
 FROM python:3.13-slim
 
-# Install system dependencies needed for compilation
+# --- INSTALL SYSTEM DEPENDENCIES & TA-LIB C LIBRARY ---
+# Combining apt-get update, install, and cleanup into a single layer (build-essential, wget, tar are needed for TA-Lib)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    tar \
+        build-essential \
+        wget \
+        tar \
+        # Dependencies for TA-Lib compilation \
     && rm -rf /var/lib/apt/lists/*
 
-# --- INSTALL TA-LIB FROM SOURCE (Necessary for pandas-ta) ---
+# --- TA-LIB C LIBRARY COMPILATION ---
+# This remains a separate RUN layer as it's a long, complex compilation process.
 RUN wget https://sourceforge.net/projects/ta-lib/files/ta-lib/0.4.0/ta-lib-0.4.0-src.tar.gz -O /tmp/ta-lib.tar.gz && \
     mkdir -p /usr/local/src/ta-lib && \
     tar -xzf /tmp/ta-lib.tar.gz -C /usr/local/src/ta-lib --strip-components 1 && \
@@ -32,8 +35,7 @@ RUN pip install --no-cache-dir \
     torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cpu
 
-# Step 2: Install remaining application dependencies (where pandas-ta lives)
-# This will likely fail, but we must try this explicit step to see the error.
+# Step 2: Install remaining application dependencies (includes ta-lib wrapper & scikit-learn)
 RUN pip install --no-cache-dir -r Requirements.txt 
 
 # Copy the rest of the application code (main.py, models.py, etc.)

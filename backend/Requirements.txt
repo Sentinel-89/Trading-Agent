@@ -2,5 +2,5 @@ fastapi
 uvicorn
 pandas
 numpy
-requests
-pandas-ta
+kiteconnect
+scikit-learn

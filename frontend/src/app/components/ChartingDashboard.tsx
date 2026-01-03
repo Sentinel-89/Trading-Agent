@@ -17,30 +17,42 @@ interface FeatureData {
   MACD: number;
   MACD_Signal: number;
   ATR: number;
-  // Placeholder for the trading action, which will be filled by the RL agent later
-  Action: 'Buy' | 'Sell' | 'Hold'; 
+  SMA_50: number;    
+  OBV: number;       
+  ROC_10: number;    
+  SMA_Ratio: number; 
+  RealizedVol_20: number;
+  Action: 'Buy' | 'Sell' | 'Hold';   // Placeholder for the trading action, which will be filled by the RL agent later
 }
+
 
 // Custom Tooltip component for better data display on hover
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
-    const dataPoint = payload[0].payload;
+    const dataPoint = payload[0].payload as FeatureData; // Use FeatureData type
     const action = dataPoint.Action || 'N/A';
     
-    // Determine a color based on a simulated action (will be dynamic later)
     const actionColor = action === 'Buy' 
-      ? '#2563EB' // Blue (for Buy/Positive)
+      ? '#2563EB' // Blue
       : action === 'Sell'
-      ? '#F97316' // Orange (for Sell/Negative)
-      : '#A1A1AA'; // Gray (for Hold/Neutral)
+      ? '#F97316' // Orange
+      : '#A1A1AA'; // Gray
 
     return (
       <div className="p-2 border border-gray-300 bg-white shadow-lg rounded">
         <p className="font-bold text-sm">Date: {label}</p>
+        <hr className="my-1"/>
         <p className="text-sm">Close: ${dataPoint.Close.toFixed(2)}</p>
-        <p className="text-sm">RSI: {dataPoint.RSI.toFixed(2)}</p>
-        <p className="text-sm">MACD: {dataPoint.MACD.toFixed(2)}</p>
         <p className="text-sm" style={{ color: actionColor }}>Action: {action}</p>
+        <hr className="my-1"/>
+        <p className="text-sm">RSI: {dataPoint.RSI.toFixed(2)}</p>
+        <p className="text-sm">MACD: {dataPoint.MACD.toFixed(2)} / Signal: {dataPoint.MACD_Signal.toFixed(2)}</p>
+        <p className="text-sm">ATR: {dataPoint.ATR.toFixed(2)}</p>
+        <p className="text-sm">SMA_50: {dataPoint.SMA_50.toFixed(2)}</p>
+        <p className="text-sm">OBV: {dataPoint.OBV.toFixed(0)}</p>
+        <p className="text-sm">ROC_10: {dataPoint.ROC_10.toFixed(2)}%</p>
+        <p className="text-sm">SMA_Ratio: {dataPoint.SMA_Ratio.toFixed(4)}</p>
+        <p className="text-sm">RealizedVol_20: {dataPoint.RealizedVol_20.toFixed(4)}</p>
       </div>
     );
   }
@@ -61,25 +73,40 @@ const ChartingDashboard: React.FC = () => {
 
   const [error, setError] = useState<string | null>(null);
   
-  // Default parameters for the API call
-  const symbol = "AAPL"; 
-  const startDate = "2023-01-01";
+  // --- 1. NEW STATE: Symbol Input and Active Symbol ---
+  // This holds the symbol currently displayed/fetched
+  const [activeSymbol, setActiveSymbol] = useState("TCS"); 
+  // This holds the symbol the user types into the input box
+  const [inputSymbol, setInputSymbol] = useState("TCS");
+  
+  // Default parameters (start date is fixed for simplicity)
+  const startDate = "2021-01-01"; 
 
+  // --- 2. NEW FUNCTION: Handle Fetch Trigger ---
+  const handleFetch = () => {
+    // Only fetch if the input symbol is different or if it's the initial fetch
+    if (inputSymbol.trim().toUpperCase() !== activeSymbol) {
+      setActiveSymbol(inputSymbol.trim().toUpperCase());
+    }
+  };
+  
+  // --- 3. REVISED useEffect: Triggered by activeSymbol change ---
   useEffect(() => {
+    // Only fetch if activeSymbol is set (i.e., after the first render)
+    if (!activeSymbol) return; 
+    
     const fetchData = async () => {
       setLoading(true);
       setError(null);
       try {
-        // Fetch features from the FastAPI endpoint (for now, I use the API-endpoint exposed by my own backend running on port 8000; later to be replaced with external API endpoint!)
-        const response = await axios.get(`http://localhost:8000/api/v1/features/${symbol}`, {
+        // The symbol in the URL is now the state variable, not a constant
+        const response = await axios.get(`http://localhost:8000/api/v1/features/${activeSymbol}`, {
           params: { start_date: startDate }
         });
 
-        // Map the fetched data and inject a temporary 'Action' for visualization; takes feature-array returned by FastAPI backend and maps it: item = 1 row, index = index of that row (index 0 is oldest, later numbers newer datapoints) coming from feature-arry of backend) 
+        // ... (rest of the processing logic remains the same) ...
         const processedData: FeatureData[] = response.data.features.map((item: any, index: number) => ({ 
           ...item,
-          // Temporary logic: Buy on the 10th and 50th data points, Sell on the 30th and 70th
-          // Artificially injects some Buy/Sell markers so that the Recharts chart can display something interesting.
           Action: (index === 10 || index === 50) ? 'Buy' : 
                   (index === 30 || index === 70) ? 'Sell' : 'Hold'
         }));
@@ -88,7 +115,7 @@ const ChartingDashboard: React.FC = () => {
         
       } catch (err) {
         console.error("Error fetching data:", err);
-        setError("Failed to load data from backend API. Please check your terminal and ensure the container is running and accessible on port 8000.");
+        setError(`Failed to load data for ${activeSymbol}. Check backend logs or symbol spelling.`);
         setData([]); 
       } finally {
         setLoading(false);
@@ -96,7 +123,7 @@ const ChartingDashboard: React.FC = () => {
     };
 
     fetchData();
-  }, []); // Empty dependency array: run once on mount
+  }, [activeSymbol]); // <-- CRITICAL: Dependency array now includes activeSymbol
 
   if (loading) {
     return <div className="text-center p-10">Loading feature data...</div>;
@@ -109,14 +136,29 @@ const ChartingDashboard: React.FC = () => {
   return (
     <div className="p-6 bg-white shadow-xl rounded-lg">
       <h2 className="text-2xl font-semibold mb-4 text-gray-800">
-        Trading Simulation Viewer: {symbol} (Using Features API)
+        Trading Simulation Viewer: {activeSymbol} (Using Features API)
       </h2>
       
-      {/* Chart controls placeholder */}
-      <div className="flex space-x-4 mb-6">
+      {/* --- 4. NEW: Input and Button for Dynamic Symbol Selection --- */}
+      <div className="flex space-x-4 mb-6 items-center">
+        <input
+          type="text"
+          value={inputSymbol}
+          onChange={(e) => setInputSymbol(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleFetch(); }}
+          className="px-3 py-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+          placeholder="Enter Ticker (e.g., TCS)"
+        />
+        <button 
+          onClick={handleFetch}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition duration-150"
+        >
+          Fetch Symbol
+        </button>
+        {/* Placeholder for the Run Simulation button */}
         <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Run Simulation</button>
-        <span className="p-2 text-gray-500">Dates and Window Length TBD</span>
       </div>
+      {/* ------------------------------------------------------------------ */}
 
       <div style={{ width: '100%', height: 400 }}>
         {data.length > 0 ? (
