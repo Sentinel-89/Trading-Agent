@@ -65,7 +65,9 @@ env = TradingEnv(
     data_by_symbol=data_by_symbol,
     encoder_ckpt_path=ENCODER_CKPT_PATH,
     feature_cols=FEATURE_COLS,
-    env_version="v1",
+    env_version="v3",              # v3 under test
+    episode_mode="rolling_window", # explicit (Axis B)
+    window_length=252,
 )
 
 # ------------------------------------------------------------
@@ -77,6 +79,14 @@ print(f"Episode start | symbol={info['symbol']}")
 print(f"Initial obs shape: {obs.shape}")
 print("-" * 60)
 
+# ------------------------------------------------------------
+# v3-specific invariants (checked dynamically)
+# ------------------------------------------------------------
+assert obs.shape == (67,), "v3 observation must be 67-dimensional"
+
+prev_time_in_trade = 0.0
+was_in_position = False
+
 done = False
 step = 0
 
@@ -86,11 +96,53 @@ while not done:
     obs, reward, terminated, truncated, info = env.step(action)
     done = terminated or truncated
 
+    position = info["position"]
+
+    # --------------------------------------------------------
+    # v3 observation layout
+    #
+    # [0:64]   latent market state
+    # [64]     position flag
+    # [65]     normalized time-in-trade
+    # [66]     unrealized return
+    # --------------------------------------------------------
+    position_flag = obs[64]
+    time_in_trade = obs[65]
+    unrealized_return = obs[66]
+
+    # --------------------------------------------------------
+    # v3 semantic assertions
+    # --------------------------------------------------------
+    assert position_flag in (0.0, 1.0)
+
+    if position == 0:
+        # Flat state
+        assert time_in_trade == 0.0
+        assert unrealized_return == 0.0
+        prev_time_in_trade = 0.0
+        was_in_position = False
+    else:
+        # In position
+        assert 0.0 <= time_in_trade <= 1.0
+
+        if not was_in_position:
+            # First observation after BUY
+            assert 0.0 <= time_in_trade <= (1.0 / env.max_holding_period)
+            was_in_position = True
+
+        else:
+            # While holding
+            assert time_in_trade >= prev_time_in_trade
+
+        prev_time_in_trade = time_in_trade
+
     print(
         f"step={step:04d} | "
         f"action={action} | "
         f"reward={reward:+.5f} | "
-        f"position={info['position']}"
+        f"position={position} | "
+        f"time_in_trade={time_in_trade:.3f} | "
+        f"unrealized={unrealized_return:+.5f}"
     )
 
     step += 1

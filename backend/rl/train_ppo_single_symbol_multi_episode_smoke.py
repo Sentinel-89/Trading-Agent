@@ -96,7 +96,7 @@ def train_single_symbol():
     data_by_symbol=data_by_symbol,
     encoder_ckpt_path=ENCODER_CKPT_PATH,
     feature_cols=feature_cols,
-    env_version="v2",                 # Axis A (explicit)
+    env_version="v3",                 # Axis A (explicit)
     episode_mode="rolling_window",    # Axis B (explicit)
     window_length=252,
     device=device,

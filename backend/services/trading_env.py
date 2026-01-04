@@ -1,17 +1,9 @@
 # ============================================================
 # services/trading_env.py
 #
-# TradingEnv v1 / v2
+# TradingEnv v1 / v2 / v3
 #
 # Gymnasium-compatible trading environment for PPO.
-#
-# v1:
-#   Observation = frozen GRU latent state only (64-dim).
-#
-# v2:
-#   Observation = latent state + position-aware signals.
-#
-# Long-only, single-position, sparse reward on SELL.
 #
 # Axis A: env_version (semantic meaning of observations/rewards)
 # Axis B: episode_mode (how episodes are constructed)
@@ -36,15 +28,19 @@ class TradingEnv(gym.Env):
 
     v1:
       - Observation: GRU latent state only (ℝ⁶⁴)
-      - Actions: HOLD / BUY / SELL
-      - Long-only, max one open position
-      - Reward realized only on SELL
 
     v2:
-      - Observation augmented with:
-          - position flag
-          - unrealized return
-      - Reward and action semantics unchanged
+      - Observation: latent + position flag (ℝ⁶⁵)
+
+    v3:
+      - Observation: latent + position flag
+                     + normalized time-in-trade
+                     + unrealized return (ℝ⁶⁷)
+
+    Actions (all versions):
+      - HOLD / BUY / SELL
+      - Long-only, max one open position
+      - Reward realized only on SELL
     """
 
     metadata = {"render_modes": []}
@@ -60,25 +56,18 @@ class TradingEnv(gym.Env):
         random_start: bool = True,
         transaction_cost: float = 0.001,
         device: str = "cpu",
+        max_holding_period: int = 252,   # used in v3 only
     ):
         super().__init__()
 
         # --------------------------------------------------------
         # Environment version guard (Axis A)
         # --------------------------------------------------------
-        assert env_version in ("v1", "v2"), "Unsupported env_version"
+        assert env_version in ("v1", "v2", "v3")
         self.env_version = env_version
 
         # --------------------------------------------------------
         # Episode construction mode (Axis B)
-        #
-        # episode_mode:
-        #   - "full_history"  : one episode = full symbol history
-        #   - "rolling_window": fixed-length sub-trajectory
-        #
-        # NOTE:
-        #   This affects episode boundaries ONLY.
-        #   Observation and reward semantics remain unchanged.
         # --------------------------------------------------------
         assert episode_mode in ("full_history", "rolling_window")
         self.episode_mode = episode_mode
@@ -95,13 +84,6 @@ class TradingEnv(gym.Env):
 
         # --------------------------------------------------------
         # Market data
-        #
-        # data_by_symbol:
-        #   dict[symbol -> DataFrame]
-        #
-        # Each DataFrame must contain:
-        #   - feature columns
-        #   - 'Close' price column
         # --------------------------------------------------------
         self.data_by_symbol = data_by_symbol
         self.feature_cols = feature_cols
@@ -109,9 +91,6 @@ class TradingEnv(gym.Env):
 
         # --------------------------------------------------------
         # Frozen GRU Encoder
-        #
-        # Used strictly as a feature extractor.
-        # No gradients, eval mode only.
         # --------------------------------------------------------
         self.encoder = GRUEncoder(
             input_size=len(feature_cols),
@@ -129,11 +108,13 @@ class TradingEnv(gym.Env):
 
         # --------------------------------------------------------
         # Gym Spaces
-        #
-        # v1: 64-dim
-        # v2: 64 + 2 = 66-dim
         # --------------------------------------------------------
-        obs_dim = 64 if self.env_version == "v1" else 66
+        if self.env_version == "v1":
+            obs_dim = 64
+        elif self.env_version == "v2":
+            obs_dim = 65
+        else:  # v3
+            obs_dim = 67
 
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -158,35 +139,31 @@ class TradingEnv(gym.Env):
         self.current_symbol: Optional[str] = None
         self.df: Optional[pd.DataFrame] = None
 
-        # Episode boundaries (set in reset)
+        # Episode boundaries
         self.current_step: int = 0
         self.last_step: int = 0
 
-        # Position state (hidden from agent in v1)
+        # Position state
         self.position: int = 0          # 0 = flat, 1 = long
         self.entry_price: Optional[float] = None
         self.entry_step: Optional[int] = None
+
+        # v3-only configuration
+        self.max_holding_period = max_holding_period
 
     # ============================================================
     # Core Gym API
     # ============================================================
 
     def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, dict]:
-        # --------------------------------------------------------
-        # Reset environment state
-        # --------------------------------------------------------
         super().reset(seed=seed)
 
         # Sample a symbol for this episode
         self.current_symbol = np.random.choice(self.symbols)
-        assert self.current_symbol is not None
         self.df = self.data_by_symbol[self.current_symbol].reset_index(drop=True)
 
         # --------------------------------------------------------
         # Episode construction (Axis B)
-        #
-        # Start index is constrained to ensure a valid
-        # 30-day encoder window at every step.
         # --------------------------------------------------------
         min_start = 29  # encoder requires [t-29 : t]
 
@@ -194,16 +171,16 @@ class TradingEnv(gym.Env):
             self.current_step = min_start
             self.last_step = len(self.df) - 1
 
-        elif self.episode_mode == "rolling_window":
+        else:  # rolling_window
+            assert self.window_length is not None
             max_start = len(self.df) - self.window_length - 1
             start = (
                 self.np_random.integers(min_start, max_start)
                 if self.random_start
                 else min_start
             )
-
-            self.current_step = start
-            self.last_step = start + self.window_length
+            self.current_step = int(start)
+            self.last_step = int(start + self.window_length)
 
         # Reset position state
         self.position = 0
@@ -214,27 +191,23 @@ class TradingEnv(gym.Env):
 
         info = {
             "symbol": self.current_symbol,
-            "episode_mode": self.episode_mode,
             "env_version": self.env_version,
+            "episode_mode": self.episode_mode,
         }
 
         return obs, info
 
     def step(self, action: int):
-        # --------------------------------------------------------
-        # Execute one trading day
-        # --------------------------------------------------------
-        assert self.df is not None, "reset() must be called before step()"
+        assert self.df is not None
 
         reward = 0.0
         terminated = False
         truncated = False
 
-        # Current close price
         close_price = float(self.df.loc[self.current_step, "Close"])
 
         # --------------------------------------------------------
-        # Action semantics (strict)
+        # Action semantics
         # --------------------------------------------------------
         if action == 1:  # BUY
             if self.position == 0:
@@ -248,12 +221,9 @@ class TradingEnv(gym.Env):
                 raw_return = (close_price - self.entry_price) / self.entry_price
                 reward = raw_return - self.transaction_cost
 
-                # Exit position
                 self.position = 0
                 self.entry_price = None
                 self.entry_step = None
-
-        # HOLD or invalid action => no-op
 
         # --------------------------------------------------------
         # Advance time
@@ -266,22 +236,18 @@ class TradingEnv(gym.Env):
         if self.current_step >= self.last_step:
             terminated = True
 
-            # Forced liquidation at episode end
             if self.position == 1:
                 assert self.entry_price is not None
                 final_price = float(self.df.loc[self.current_step, "Close"])
-                raw_return = (
-                    (final_price - self.entry_price) / self.entry_price
-                )
+                raw_return = (final_price - self.entry_price) / self.entry_price
                 reward += raw_return - self.transaction_cost
 
                 self.position = 0
                 self.entry_price = None
                 self.entry_step = None
 
-        # If terminated, return dummy observation
         if terminated:
-            obs = np.zeros(self.observation_space.shape[0], dtype=np.float32)
+            obs = np.zeros(self.observation_space.shape, dtype=np.float32)
         else:
             obs = self._get_observation()
 
@@ -299,24 +265,18 @@ class TradingEnv(gym.Env):
 
     def _get_observation(self) -> np.ndarray:
         """
-        Compute observation for window [t-29 : t]
-
-        v1:
-          - latent market state only
-
-        v2:
-          - latent market state
-          - position flag
-          - unrealized return
+        Compute observation according to env_version.
         """
         assert self.df is not None
 
+        # --------------------------------------------------------
+        # Latent market state (all versions)
+        # --------------------------------------------------------
         window = self.df.loc[
             self.current_step - 29 : self.current_step,
             self.feature_cols,
         ].values.astype(np.float32)
 
-        # Shape: (1, 30, num_features)
         x = torch.tensor(window, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
@@ -325,20 +285,49 @@ class TradingEnv(gym.Env):
         if self.env_version == "v1":
             return latent.cpu().numpy()
 
-        # ---------------- v2 augmentation ----------------
+        # --------------------------------------------------------
+        # v2+: position flag
+        # --------------------------------------------------------
         position_flag = float(self.position)
 
+        if self.env_version == "v2":
+            obs = torch.cat([
+                latent,
+                torch.tensor([position_flag], device=latent.device),
+            ])
+            return obs.cpu().numpy()
+
+        # --------------------------------------------------------
+        # v3: time-in-trade + unrealized return
+        # --------------------------------------------------------
         if self.position == 1:
+            assert self.entry_price is not None
+            assert self.entry_step is not None
+
+            holding_time = self.current_step - self.entry_step
+            time_in_trade = min(
+                holding_time / self.max_holding_period,
+                1.0,
+            )
+
             close_price = float(self.df.loc[self.current_step, "Close"])
-            unrealized = (close_price - self.entry_price) / self.entry_price
+            unrealized_return = (
+                (close_price - self.entry_price) / self.entry_price
+            )
         else:
-            unrealized = 0.0
+            time_in_trade = 0.0
+            unrealized_return = 0.0
 
-        extra = torch.tensor(
-            [position_flag, unrealized],
-            device=latent.device,
-            dtype=latent.dtype,
-        )
+        obs = torch.cat([
+            latent,
+            torch.tensor(
+                [
+                    position_flag,
+                    float(time_in_trade),
+                    float(unrealized_return),
+                ],
+                device=latent.device,
+            ),
+        ])
 
-        obs = torch.cat([latent, extra])
         return obs.cpu().numpy()
