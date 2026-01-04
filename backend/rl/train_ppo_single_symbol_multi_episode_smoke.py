@@ -89,15 +89,17 @@ def train_single_symbol():
         data_by_symbol[symbol] = df
 
     # ============================================================
-    # Environment
+    # Environment (configure here!)
     # ============================================================
 
     env = TradingEnv(
-        data_by_symbol=data_by_symbol,
-        encoder_ckpt_path=ENCODER_CKPT_PATH,
-        feature_cols=feature_cols,
-        env_version="v1",
-        device=device,
+    data_by_symbol=data_by_symbol,
+    encoder_ckpt_path=ENCODER_CKPT_PATH,
+    feature_cols=feature_cols,
+    env_version="v2",                 # Axis A (explicit)
+    episode_mode="rolling_window",    # Axis B (explicit)
+    window_length=252,
+    device=device,
     )
 
     obs, info = env.reset()

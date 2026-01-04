@@ -1,10 +1,16 @@
 # ============================================================
 # services/trading_env.py
 #
-# TradingEnv v1
+# TradingEnv v1 / v2
 #
 # Gymnasium-compatible trading environment for PPO.
-# Observation = frozen GRU latent state only (64-dim).
+#
+# v1:
+#   Observation = frozen GRU latent state only (64-dim).
+#
+# v2:
+#   Observation = latent state + position-aware signals.
+#
 # Long-only, single-position, sparse reward on SELL.
 #
 # Axis A: env_version (semantic meaning of observations/rewards)
@@ -33,6 +39,12 @@ class TradingEnv(gym.Env):
       - Actions: HOLD / BUY / SELL
       - Long-only, max one open position
       - Reward realized only on SELL
+
+    v2:
+      - Observation augmented with:
+          - position flag
+          - unrealized return
+      - Reward and action semantics unchanged
     """
 
     metadata = {"render_modes": []}
@@ -54,8 +66,7 @@ class TradingEnv(gym.Env):
         # --------------------------------------------------------
         # Environment version guard (Axis A)
         # --------------------------------------------------------
-        assert env_version == "v1", "Only TradingEnv v1 is implemented"
-
+        assert env_version in ("v1", "v2"), "Unsupported env_version"
         self.env_version = env_version
 
         # --------------------------------------------------------
@@ -118,11 +129,16 @@ class TradingEnv(gym.Env):
 
         # --------------------------------------------------------
         # Gym Spaces
+        #
+        # v1: 64-dim
+        # v2: 64 + 2 = 66-dim
         # --------------------------------------------------------
+        obs_dim = 64 if self.env_version == "v1" else 66
+
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(64,),
+            shape=(obs_dim,),
             dtype=np.float32,
         )
 
@@ -137,7 +153,7 @@ class TradingEnv(gym.Env):
         #
         # NOTE:
         #   These variables are intentionally NOT part
-        #   of the observation (v1 contract).
+        #   of the observation in v1.
         # --------------------------------------------------------
         self.current_symbol: Optional[str] = None
         self.df: Optional[pd.DataFrame] = None
@@ -146,7 +162,7 @@ class TradingEnv(gym.Env):
         self.current_step: int = 0
         self.last_step: int = 0
 
-        # Position state (hidden from agent)
+        # Position state (hidden from agent in v1)
         self.position: int = 0          # 0 = flat, 1 = long
         self.entry_price: Optional[float] = None
         self.entry_step: Optional[int] = None
@@ -199,6 +215,7 @@ class TradingEnv(gym.Env):
         info = {
             "symbol": self.current_symbol,
             "episode_mode": self.episode_mode,
+            "env_version": self.env_version,
         }
 
         return obs, info
@@ -264,7 +281,7 @@ class TradingEnv(gym.Env):
 
         # If terminated, return dummy observation
         if terminated:
-            obs = np.zeros(64, dtype=np.float32)
+            obs = np.zeros(self.observation_space.shape[0], dtype=np.float32)
         else:
             obs = self._get_observation()
 
@@ -282,7 +299,15 @@ class TradingEnv(gym.Env):
 
     def _get_observation(self) -> np.ndarray:
         """
-        Compute latent market state for window [t-29 : t]
+        Compute observation for window [t-29 : t]
+
+        v1:
+          - latent market state only
+
+        v2:
+          - latent market state
+          - position flag
+          - unrealized return
         """
         assert self.df is not None
 
@@ -297,4 +322,23 @@ class TradingEnv(gym.Env):
         with torch.no_grad():
             latent = self.encoder(x).squeeze(0)
 
-        return latent.cpu().numpy()
+        if self.env_version == "v1":
+            return latent.cpu().numpy()
+
+        # ---------------- v2 augmentation ----------------
+        position_flag = float(self.position)
+
+        if self.position == 1:
+            close_price = float(self.df.loc[self.current_step, "Close"])
+            unrealized = (close_price - self.entry_price) / self.entry_price
+        else:
+            unrealized = 0.0
+
+        extra = torch.tensor(
+            [position_flag, unrealized],
+            device=latent.device,
+            dtype=latent.dtype,
+        )
+
+        obs = torch.cat([latent, extra])
+        return obs.cpu().numpy()
