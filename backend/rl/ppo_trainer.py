@@ -21,7 +21,14 @@ def ppo_update(
     """
     Perform PPO updates using rollout data from a single environment.
 
-    Returns diagnostic statistics for smoke testing.
+    Returns diagnostic (complementary) statistics for smoke testing.
+
+    # takes rollout tensors
+
+    # performs PPO epochs
+
+    # returns averaged diagnostics answering the question "Are Gradients sane?"
+
     """
 
     # ============================================================
