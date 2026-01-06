@@ -1,4 +1,4 @@
-# Neural PPO Network only!  (no storage of state transitions, no PPO update logic -> see other files)
+# Neural PPO Network only!  (no storage of state transitions, no PPO update logic -> for that see ppo_trainer.py!)
 
 import torch
 import torch.nn as nn

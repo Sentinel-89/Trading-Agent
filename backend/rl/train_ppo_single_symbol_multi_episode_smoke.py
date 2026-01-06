@@ -15,9 +15,13 @@ NOT intended for:
 """
 
 import os
+import json
+from datetime import datetime
+
 import torch
 import joblib
 import pandas as pd
+import numpy as np
 
 from backend.services.trading_env import TradingEnv
 from backend.models.ppo_actor_critic import PPOActorCritic
@@ -47,7 +51,6 @@ def train_single_symbol():
     # ============================================================
 
     config = PPOConfig()
-
     NUM_EPISODES = 5  # smoke-level only
 
     # ============================================================
@@ -89,17 +92,17 @@ def train_single_symbol():
         data_by_symbol[symbol] = df
 
     # ============================================================
-    # Environment (configure here!)
+    # Environment (Axis A + Axis B explicit)
     # ============================================================
 
     env = TradingEnv(
-    data_by_symbol=data_by_symbol,
-    encoder_ckpt_path=ENCODER_CKPT_PATH,
-    feature_cols=feature_cols,
-    env_version="v3",                 # Axis A (explicit)
-    episode_mode="rolling_window",    # Axis B (explicit)
-    window_length=252,
-    device=device,
+        data_by_symbol=data_by_symbol,
+        encoder_ckpt_path=ENCODER_CKPT_PATH,
+        feature_cols=feature_cols,
+        env_version="v3",
+        episode_mode="rolling_window",
+        window_length=252,
+        device=device,
     )
 
     obs, info = env.reset()
@@ -118,6 +121,16 @@ def train_single_symbol():
     episode_rewards = []
     episode_entropies = []
     episode_action_freqs = []
+
+    # ------------------------------------------------------------
+    # Mini-Phase-C learning diagnostics
+    #
+    # These track critic stability across episodes.
+    # ------------------------------------------------------------
+
+    episode_value_mean = []
+    episode_value_std = []
+    episode_explained_var = []
 
     # ============================================================
     # Multi-episode loop
@@ -193,11 +206,13 @@ def train_single_symbol():
         )
 
         # --------------------------------------------------------
-        # Episode diagnostics
+        # Episode diagnostics (Mini-Phase-C)
         # --------------------------------------------------------
 
         actions = rollout["actions"].cpu().numpy()
         rewards = rollout["rewards"].cpu().numpy()
+        values = rollout["values"].cpu().numpy()
+        returns_np = returns.cpu().numpy()
 
         action_freq = {
             "HOLD": float((actions == 0).mean()),
@@ -205,15 +220,26 @@ def train_single_symbol():
             "SELL": float((actions == 2).mean()),
         }
 
-        episode_rewards.append(rewards.sum())
-        episode_entropies.append(stats["entropy"])
+        value_mean = float(values.mean())
+        value_std = float(values.std())
+        explained_var = 1.0 - np.var(returns_np - values) / (
+            np.var(returns_np) + 1e-8
+        )
+
+        episode_rewards.append(float(rewards.sum()))
+        episode_entropies.append(float(stats["entropy"]))
         episode_action_freqs.append(action_freq)
+
+        episode_value_mean.append(value_mean)
+        episode_value_std.append(value_std)
+        episode_explained_var.append(float(explained_var))
 
         print(
             f"Episode {ep+1:02d} | "
             f"steps={len(actions):4d} | "
             f"reward={rewards.sum():+.4f} | "
             f"entropy={stats['entropy']:.4f} | "
+            f"Vμ={value_mean:+.3f} Vσ={value_std:.3f} EV={explained_var:+.3f} | "
             f"H={action_freq['HOLD']:.2f} "
             f"B={action_freq['BUY']:.2f} "
             f"S={action_freq['SELL']:.2f}"
@@ -230,10 +256,51 @@ def train_single_symbol():
             f"Ep {i+1:02d} | "
             f"reward={episode_rewards[i]:+.4f} | "
             f"entropy={episode_entropies[i]:.4f} | "
+            f"Vμ={episode_value_mean[i]:+.3f} "
+            f"Vσ={episode_value_std[i]:.3f} "
+            f"EV={episode_explained_var[i]:+.3f} | "
             f"{episode_action_freqs[i]}"
         )
 
-    print("\nSmoke test completed successfully.")
+    # ============================================================
+    # Persist Mini-Phase-C results (experiment-level logging)
+    #
+    # NOTE:
+    #   - One JSON file per run
+    #   - Episode-level summaries only
+    #   - No per-step logging (intentional)
+    # ============================================================
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    results = {
+        "phase": "mini_phase_c",
+        "env_version": "v3",
+        "episode_mode": "rolling_window",
+        "window_length": 252,
+        "num_episodes": NUM_EPISODES,
+        "timestamp": timestamp,
+        "episodes": [
+            {
+                "episode": i + 1,
+                "reward": episode_rewards[i],
+                "entropy": episode_entropies[i],
+                "action_freq": episode_action_freqs[i],
+                "value_mean": episode_value_mean[i],
+                "value_std": episode_value_std[i],
+                "explained_variance": episode_explained_var[i],
+            }
+            for i in range(NUM_EPISODES)
+        ],
+    }
+
+    out_path = f"mini_phase_c_v3_{timestamp}.json"
+
+    with open(out_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    print(f"\nMini-Phase-C results saved to: {out_path}")
+    print("\nMini-Phase-C completed successfully.")
 
 
 if __name__ == "__main__":
