@@ -1,7 +1,7 @@
 # ============================================================
 # services/trading_env.py
 #
-# TradingEnv v1 / v2 / v3
+# TradingEnv v1 / v2 / v3 / v4
 #
 # Gymnasium-compatible trading environment for PPO.
 #
@@ -37,6 +37,11 @@ class TradingEnv(gym.Env):
                      + normalized time-in-trade
                      + unrealized return (ℝ⁶⁷)
 
+    v4 (log-only / shaped):
+      - Observation: v3 +
+                     equity (normalized)
+                     drawdown (normalized)   (ℝ⁶⁹)
+
     Actions (all versions):
       - HOLD / BUY / SELL
       - Long-only, max one open position
@@ -56,15 +61,22 @@ class TradingEnv(gym.Env):
         random_start: bool = True,
         transaction_cost: float = 0.001,
         device: str = "cpu",
-        max_holding_period: int = 252,   # used in v3 only
+        max_holding_period: int = 252,   # used in v3+
+        initial_cash: float = 1.0,       # used in v4 only (normalized)
     ):
         super().__init__()
 
         # --------------------------------------------------------
         # Environment version guard (Axis A)
         # --------------------------------------------------------
-        assert env_version in ("v1", "v2", "v3")
+        assert env_version in ("v1", "v2", "v3", "v4", "v4.1")
         self.env_version = env_version
+
+        # --------------------------------------------------------
+        # v4.1 reward shaping configuration
+        # --------------------------------------------------------
+        self.enable_reward_shaping = (env_version == "v4.1")
+        self.lambda_drawdown = 0.2
 
         # --------------------------------------------------------
         # Episode construction mode (Axis B)
@@ -75,9 +87,7 @@ class TradingEnv(gym.Env):
         self.random_start = random_start
 
         if self.episode_mode == "rolling_window":
-            assert (
-                self.window_length is not None
-            ), "window_length must be set for rolling_window episodes"
+            assert self.window_length is not None
 
         self.transaction_cost = transaction_cost
         self.device = device
@@ -113,8 +123,10 @@ class TradingEnv(gym.Env):
             obs_dim = 64
         elif self.env_version == "v2":
             obs_dim = 65
-        else:  # v3
+        elif self.env_version == "v3":
             obs_dim = 67
+        else:  # v4 / v4.1
+            obs_dim = 69
 
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -123,32 +135,34 @@ class TradingEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Actions:
-        #   0 -> HOLD
-        #   1 -> BUY
-        #   2 -> SELL
         self.action_space = spaces.Discrete(3)
 
         # --------------------------------------------------------
         # Episode / Position State
-        #
-        # NOTE:
-        #   These variables are intentionally NOT part
-        #   of the observation in v1.
         # --------------------------------------------------------
         self.current_symbol: Optional[str] = None
         self.df: Optional[pd.DataFrame] = None
 
-        # Episode boundaries
         self.current_step: int = 0
         self.last_step: int = 0
 
-        # Position state
-        self.position: int = 0          # 0 = flat, 1 = long
+        self.position: int = 0
         self.entry_price: Optional[float] = None
         self.entry_step: Optional[int] = None
 
-        # v3-only configuration
+        # --------------------------------------------------------
+        # v4-only portfolio state
+        # --------------------------------------------------------
+        self.initial_cash = initial_cash
+        self.cash: float = initial_cash
+        self.equity: float = initial_cash
+        self.equity_peak: float = initial_cash
+
+        # --------------------------------------------------------
+        # v4.1 per-trade risk tracking (internal)
+        # --------------------------------------------------------
+        self.max_drawdown_in_trade: float = 0.0
+
         self.max_holding_period = max_holding_period
 
     # ============================================================
@@ -158,21 +172,15 @@ class TradingEnv(gym.Env):
     def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, dict]:
         super().reset(seed=seed)
 
-        # Sample a symbol for this episode
         self.current_symbol = np.random.choice(self.symbols)
         self.df = self.data_by_symbol[self.current_symbol].reset_index(drop=True)
 
-        # --------------------------------------------------------
-        # Episode construction (Axis B)
-        # --------------------------------------------------------
-        min_start = 29  # encoder requires [t-29 : t]
+        min_start = 29
 
         if self.episode_mode == "full_history":
             self.current_step = min_start
             self.last_step = len(self.df) - 1
-
-        else:  # rolling_window
-            assert self.window_length is not None
+        else:
             max_start = len(self.df) - self.window_length - 1
             start = (
                 self.np_random.integers(min_start, max_start)
@@ -182,10 +190,24 @@ class TradingEnv(gym.Env):
             self.current_step = int(start)
             self.last_step = int(start + self.window_length)
 
+        # --------------------------------------------------------
         # Reset position state
+        # --------------------------------------------------------
         self.position = 0
         self.entry_price = None
         self.entry_step = None
+
+        # --------------------------------------------------------
+        # Reset portfolio state (v4)
+        # --------------------------------------------------------
+        self.cash = self.initial_cash
+        self.equity = self.initial_cash
+        self.equity_peak = self.initial_cash
+
+        # --------------------------------------------------------
+        # Reset per-trade risk state (v4.1)
+        # --------------------------------------------------------
+        self.max_drawdown_in_trade = 0.0
 
         obs = self._get_observation()
 
@@ -209,21 +231,34 @@ class TradingEnv(gym.Env):
         # --------------------------------------------------------
         # Action semantics
         # --------------------------------------------------------
-        if action == 1:  # BUY
-            if self.position == 0:
-                self.position = 1
-                self.entry_price = close_price
-                self.entry_step = self.current_step
+        if action == 1 and self.position == 0:
+            self.position = 1
+            self.entry_price = close_price
+            self.entry_step = self.current_step
 
-        if action == 2:  # SELL
-            if self.position == 1:
-                assert self.entry_price is not None
-                raw_return = (close_price - self.entry_price) / self.entry_price
-                reward = raw_return - self.transaction_cost
+            # --------------------------------------------------
+            # Start new trade: reset trade-level drawdown
+            # --------------------------------------------------
+            self.max_drawdown_in_trade = 0.0
 
-                self.position = 0
-                self.entry_price = None
-                self.entry_step = None
+        if action == 2 and self.position == 1:
+            assert self.entry_price is not None
+
+            raw_return = (close_price - self.entry_price) / self.entry_price
+            reward = raw_return - self.transaction_cost
+
+            # --------------------------------------------------
+            # v4.1 reward shaping (SELL only)
+            # --------------------------------------------------
+            if self.enable_reward_shaping:
+                reward -= self.lambda_drawdown * abs(self.max_drawdown_in_trade)
+
+            # Realize PnL into cash
+            self.cash *= (1.0 + raw_return - self.transaction_cost)
+
+            self.position = 0
+            self.entry_price = None
+            self.entry_step = None
 
         # --------------------------------------------------------
         # Advance time
@@ -231,47 +266,59 @@ class TradingEnv(gym.Env):
         self.current_step += 1
 
         # --------------------------------------------------------
+        # Portfolio update (v4)
+        # --------------------------------------------------------
+        if self.position == 1:
+            assert self.entry_price is not None
+            unrealized = (close_price - self.entry_price) / self.entry_price
+            self.equity = self.cash * (1.0 + unrealized)
+        else:
+            self.equity = self.cash
+
+        self.equity_peak = max(self.equity_peak, self.equity)
+
+        # --------------------------------------------------------
+        # Update per-trade max drawdown (v4.1)
+        # --------------------------------------------------------
+        if self.position == 1:
+            drawdown = (
+                (self.equity - self.equity_peak) / self.equity_peak
+                if self.equity_peak > 0.0
+                else 0.0
+            )
+            self.max_drawdown_in_trade = min(
+                self.max_drawdown_in_trade,
+                drawdown,
+            )
+
+        # --------------------------------------------------------
         # Episode termination
         # --------------------------------------------------------
         if self.current_step >= self.last_step:
             terminated = True
 
-            if self.position == 1:
-                assert self.entry_price is not None
-                final_price = float(self.df.loc[self.current_step, "Close"])
-                raw_return = (final_price - self.entry_price) / self.entry_price
-                reward += raw_return - self.transaction_cost
-
-                self.position = 0
-                self.entry_price = None
-                self.entry_step = None
-
-        if terminated:
-            obs = np.zeros(self.observation_space.shape, dtype=np.float32)
-        else:
-            obs = self._get_observation()
+        obs = (
+            np.zeros(self.observation_space.shape, dtype=np.float32)
+            if terminated
+            else self._get_observation()
+        )
 
         info = {
             "symbol": self.current_symbol,
             "step": self.current_step,
             "position": self.position,
+            "equity": self.equity,
         }
 
         return obs, reward, terminated, truncated, info
 
     # ============================================================
-    # Helper Functions
+    # Observation Construction
     # ============================================================
 
     def _get_observation(self) -> np.ndarray:
-        """
-        Compute observation according to env_version.
-        """
         assert self.df is not None
 
-        # --------------------------------------------------------
-        # Latent market state (all versions)
-        # --------------------------------------------------------
         window = self.df.loc[
             self.current_step - 29 : self.current_step,
             self.feature_cols,
@@ -285,49 +332,55 @@ class TradingEnv(gym.Env):
         if self.env_version == "v1":
             return latent.cpu().numpy()
 
-        # --------------------------------------------------------
-        # v2+: position flag
-        # --------------------------------------------------------
         position_flag = float(self.position)
 
         if self.env_version == "v2":
-            obs = torch.cat([
+            return torch.cat([
                 latent,
                 torch.tensor([position_flag], device=latent.device),
-            ])
-            return obs.cpu().numpy()
+            ]).cpu().numpy()
 
         # --------------------------------------------------------
-        # v3: time-in-trade + unrealized return
+        # v3+ extras
         # --------------------------------------------------------
         if self.position == 1:
-            assert self.entry_price is not None
             assert self.entry_step is not None
+            assert self.entry_price is not None
 
             holding_time = self.current_step - self.entry_step
             time_in_trade = min(
                 holding_time / self.max_holding_period,
                 1.0,
             )
-
             close_price = float(self.df.loc[self.current_step, "Close"])
-            unrealized_return = (
-                (close_price - self.entry_price) / self.entry_price
-            )
+            unrealized = (close_price - self.entry_price) / self.entry_price
         else:
             time_in_trade = 0.0
-            unrealized_return = 0.0
+            unrealized = 0.0
+
+        extras = [
+            position_flag,
+            float(time_in_trade),
+            float(unrealized),
+        ]
+
+        # --------------------------------------------------------
+        # v4 / v4.1: equity + drawdown
+        # --------------------------------------------------------
+        if self.env_version in ("v4", "v4.1"):
+            drawdown = (
+                (self.equity - self.equity_peak) / self.equity_peak
+                if self.equity_peak > 0.0
+                else 0.0
+            )
+            extras.extend([
+                float(self.equity),
+                float(drawdown),
+            ])
 
         obs = torch.cat([
             latent,
-            torch.tensor(
-                [
-                    position_flag,
-                    float(time_in_trade),
-                    float(unrealized_return),
-                ],
-                device=latent.device,
-            ),
+            torch.tensor(extras, device=latent.device),
         ])
 
         return obs.cpu().numpy()
