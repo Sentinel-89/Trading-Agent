@@ -37,7 +37,7 @@ class TradingEnv(gym.Env):
                      + normalized time-in-trade
                      + unrealized return (ℝ⁶⁷)
 
-    v4 (log-only, no reward shaping):
+    v4 (log-only / shaped):
       - Observation: v3 +
                      equity (normalized)
                      drawdown (normalized)   (ℝ⁶⁹)
@@ -69,8 +69,14 @@ class TradingEnv(gym.Env):
         # --------------------------------------------------------
         # Environment version guard (Axis A)
         # --------------------------------------------------------
-        assert env_version in ("v1", "v2", "v3", "v4")
+        assert env_version in ("v1", "v2", "v3", "v4", "v4.1")
         self.env_version = env_version
+
+        # --------------------------------------------------------
+        # v4.1 reward shaping configuration
+        # --------------------------------------------------------
+        self.enable_reward_shaping = (env_version == "v4.1")
+        self.lambda_drawdown = 0.2
 
         # --------------------------------------------------------
         # Episode construction mode (Axis B)
@@ -119,7 +125,7 @@ class TradingEnv(gym.Env):
             obs_dim = 65
         elif self.env_version == "v3":
             obs_dim = 67
-        else:  # v4
+        else:  # v4 / v4.1
             obs_dim = 69
 
         self.observation_space = spaces.Box(
@@ -145,12 +151,17 @@ class TradingEnv(gym.Env):
         self.entry_step: Optional[int] = None
 
         # --------------------------------------------------------
-        # v4-only portfolio state (log-only)
+        # v4-only portfolio state
         # --------------------------------------------------------
         self.initial_cash = initial_cash
         self.cash: float = initial_cash
         self.equity: float = initial_cash
         self.equity_peak: float = initial_cash
+
+        # --------------------------------------------------------
+        # v4.1 per-trade risk tracking (internal)
+        # --------------------------------------------------------
+        self.max_drawdown_in_trade: float = 0.0
 
         self.max_holding_period = max_holding_period
 
@@ -193,6 +204,11 @@ class TradingEnv(gym.Env):
         self.equity = self.initial_cash
         self.equity_peak = self.initial_cash
 
+        # --------------------------------------------------------
+        # Reset per-trade risk state (v4.1)
+        # --------------------------------------------------------
+        self.max_drawdown_in_trade = 0.0
+
         obs = self._get_observation()
 
         info = {
@@ -220,11 +236,22 @@ class TradingEnv(gym.Env):
             self.entry_price = close_price
             self.entry_step = self.current_step
 
+            # --------------------------------------------------
+            # Start new trade: reset trade-level drawdown
+            # --------------------------------------------------
+            self.max_drawdown_in_trade = 0.0
+
         if action == 2 and self.position == 1:
             assert self.entry_price is not None
 
             raw_return = (close_price - self.entry_price) / self.entry_price
             reward = raw_return - self.transaction_cost
+
+            # --------------------------------------------------
+            # v4.1 reward shaping (SELL only)
+            # --------------------------------------------------
+            if self.enable_reward_shaping:
+                reward -= self.lambda_drawdown * abs(self.max_drawdown_in_trade)
 
             # Realize PnL into cash
             self.cash *= (1.0 + raw_return - self.transaction_cost)
@@ -239,7 +266,7 @@ class TradingEnv(gym.Env):
         self.current_step += 1
 
         # --------------------------------------------------------
-        # Portfolio update (v4 log-only)
+        # Portfolio update (v4)
         # --------------------------------------------------------
         if self.position == 1:
             assert self.entry_price is not None
@@ -249,6 +276,20 @@ class TradingEnv(gym.Env):
             self.equity = self.cash
 
         self.equity_peak = max(self.equity_peak, self.equity)
+
+        # --------------------------------------------------------
+        # Update per-trade max drawdown (v4.1)
+        # --------------------------------------------------------
+        if self.position == 1:
+            drawdown = (
+                (self.equity - self.equity_peak) / self.equity_peak
+                if self.equity_peak > 0.0
+                else 0.0
+            )
+            self.max_drawdown_in_trade = min(
+                self.max_drawdown_in_trade,
+                drawdown,
+            )
 
         # --------------------------------------------------------
         # Episode termination
@@ -324,9 +365,9 @@ class TradingEnv(gym.Env):
         ]
 
         # --------------------------------------------------------
-        # v4 (log-only): equity + drawdown
+        # v4 / v4.1: equity + drawdown
         # --------------------------------------------------------
-        if self.env_version == "v4":
+        if self.env_version in ("v4", "v4.1"):
             drawdown = (
                 (self.equity - self.equity_peak) / self.equity_peak
                 if self.equity_peak > 0.0

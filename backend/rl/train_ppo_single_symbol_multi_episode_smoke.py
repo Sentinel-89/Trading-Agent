@@ -51,7 +51,7 @@ def train_single_symbol():
     NUM_EPISODES = 5  # smoke-level only
 
     # ============================================================
-    # Paths (identical to trading_env smoke test)
+    # Paths
     # ============================================================
 
     BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -89,17 +89,17 @@ def train_single_symbol():
         data_by_symbol[symbol] = df
 
     # ============================================================
-    # Environment (configure here!)
+    # Environment (v4.1 shaped)
     # ============================================================
 
     env = TradingEnv(
-    data_by_symbol=data_by_symbol,
-    encoder_ckpt_path=ENCODER_CKPT_PATH,
-    feature_cols=feature_cols,
-    env_version="v4",                 # Axis A (explicit)
-    episode_mode="rolling_window",    # Axis B (explicit)
-    window_length=252,
-    device=device,
+        data_by_symbol=data_by_symbol,
+        encoder_ckpt_path=ENCODER_CKPT_PATH,
+        feature_cols=feature_cols,
+        env_version="v4.1",              # explicit shaped version
+        episode_mode="rolling_window",
+        window_length=252,
+        device=device,
     )
 
     obs, info = env.reset()
@@ -118,6 +118,7 @@ def train_single_symbol():
     episode_rewards = []
     episode_entropies = []
     episode_action_freqs = []
+    episode_mean_drawdown_penalties = []
 
     # ============================================================
     # Multi-episode loop
@@ -128,6 +129,13 @@ def train_single_symbol():
         obs, info = env.reset()
         buffer = RolloutBuffer()
         done = False
+
+        # --------------------------------------------------------
+        # v4.1 shaping diagnostics (per episode)
+        # --------------------------------------------------------
+
+        total_drawdown_penalty = 0.0
+        num_sells = 0
 
         # --------------------------------------------------------
         # Rollout collection
@@ -141,8 +149,18 @@ def train_single_symbol():
                 action, log_prob, value = policy.act(latent)
 
             action_int = int(action.item())
-            next_obs, reward, terminated, truncated, _ = env.step(action_int)
+            next_obs, reward, terminated, truncated, info = env.step(action_int)
             done = terminated or truncated
+
+            # ----------------------------------------------------
+            # v4.1 SELL diagnostics (debug)
+            # ----------------------------------------------------
+            if action_int == 2 and info["position"] == 0:
+                d_max = env.max_drawdown_in_trade
+                penalty = env.lambda_drawdown * abs(d_max)
+
+                total_drawdown_penalty += penalty
+                num_sells += 1
 
             buffer.add(
                 latent=latent,
@@ -205,15 +223,23 @@ def train_single_symbol():
             "SELL": float((actions == 2).mean()),
         }
 
+        mean_drawdown_penalty = (
+            total_drawdown_penalty / num_sells
+            if num_sells > 0
+            else 0.0
+        )
+
         episode_rewards.append(rewards.sum())
         episode_entropies.append(stats["entropy"])
         episode_action_freqs.append(action_freq)
+        episode_mean_drawdown_penalties.append(mean_drawdown_penalty)
 
         print(
             f"Episode {ep+1:02d} | "
             f"steps={len(actions):4d} | "
             f"reward={rewards.sum():+.4f} | "
             f"entropy={stats['entropy']:.4f} | "
+            f"mean_dd_penalty={mean_drawdown_penalty:+.4f} | "
             f"H={action_freq['HOLD']:.2f} "
             f"B={action_freq['BUY']:.2f} "
             f"S={action_freq['SELL']:.2f}"
@@ -230,6 +256,7 @@ def train_single_symbol():
             f"Ep {i+1:02d} | "
             f"reward={episode_rewards[i]:+.4f} | "
             f"entropy={episode_entropies[i]:.4f} | "
+            f"mean_dd_penalty={episode_mean_drawdown_penalties[i]:+.4f} | "
             f"{episode_action_freqs[i]}"
         )
 

@@ -1,15 +1,5 @@
 # backend/rl/train_ppo_single_symbol_smoke.py
 
-#Logged output: log2_train_ppo_single_symbol_smoke.txt  (TradingEnv v1)
-
-# Output is not from a single batch, but averaged across batches, whereas the rollout data stays the same:
-    # Rollout data:
-        # ◦ observations (latents)
-        # ◦ actions
-        # ◦ old_log_probs
-        # ◦ advantages
-        # ◦ returns
-
 """
 PPO single-symbol smoke training.
 
@@ -23,22 +13,6 @@ It is NOT intended for:
 - hyperparameter tuning
 - multi-symbol training
 """
-
-# This PPO-Smoke-Test...
-# • creates the env
-# • collects rollouts
-# • computes GAE
-# • normalizes advantages
-# • performs PPO updates
-# • is NOT intended for performance yet.
-# backend/rl/train_ppo_single_symbol.py
-# Successfull run confirms:
-    # • the run completes
-    # • no runtime errors
-    # • gradients flow
-    # • PPO update executes
-
-# INCLUDES DIAGNOSTICs Tool ("Entropy ≈ log(3) initially, Action distribution roughly uniform?, Advantages centered around zero?")
 
 import os
 import torch
@@ -72,7 +46,7 @@ def train_single_symbol():
     config = PPOConfig()
 
     # ============================================================
-    # Paths (identical to trading_env smoke test)
+    # Paths
     # ============================================================
 
     BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -102,7 +76,7 @@ def train_single_symbol():
     ]
 
     # ============================================================
-    # Load scaler and processed data (same as smoke test)
+    # Load scaler and processed data
     # ============================================================
 
     scaler = joblib.load(SCALER_PATH)
@@ -122,18 +96,18 @@ def train_single_symbol():
         data_by_symbol[symbol] = df
 
     # ============================================================
-    # Environment (configure here!)
+    # Environment (v4.1 shaped)
     # ============================================================
 
     env = TradingEnv(
-    data_by_symbol=data_by_symbol,
-    encoder_ckpt_path=ENCODER_CKPT_PATH,
-    feature_cols=feature_cols,
-    env_version="v4",                 # Axis A (explicit)
-    episode_mode="rolling_window",    # Axis B (explicit)
-    window_length=252,
-    device=device,
-)
+        data_by_symbol=data_by_symbol,
+        encoder_ckpt_path=ENCODER_CKPT_PATH,
+        feature_cols=feature_cols,
+        env_version="v4.1",              # explicit: shaped version
+        episode_mode="rolling_window",
+        window_length=252,
+        device=device,
+    )
 
     obs, info = env.reset()
 
@@ -157,6 +131,13 @@ def train_single_symbol():
     buffer = RolloutBuffer()
 
     # ============================================================
+    # v4.1 shaping diagnostics (accumulators)
+    # ============================================================
+
+    total_drawdown_penalty = 0.0
+    num_sells = 0
+
+    # ============================================================
     # Collect one full episode
     # ============================================================
 
@@ -171,11 +152,26 @@ def train_single_symbol():
         with torch.no_grad():
             action, log_prob, value = policy.act(latent)
 
-        # TradingEnv expects a Python int
         action_int = int(action.item())
 
-        next_obs, reward, terminated, truncated, _ = env.step(action_int)
+        next_obs, reward, terminated, truncated, info = env.step(action_int)
         done = terminated or truncated
+
+        # --------------------------------------------------------
+        # v4.1 SELL diagnostics (debug only)
+        # --------------------------------------------------------
+        if action_int == 2 and info["position"] == 0:
+            d_max = env.max_drawdown_in_trade
+            penalty = env.lambda_drawdown * abs(d_max)
+
+            total_drawdown_penalty += penalty
+            num_sells += 1
+
+            print(
+                f"[SELL] max_drawdown_in_trade={d_max:+.4f} | "
+                f"drawdown_penalty={penalty:+.6f} | "
+                f"reward_shaped={reward:+.6f}"
+            )
 
         buffer.add(
             latent=latent,
@@ -202,17 +198,22 @@ def train_single_symbol():
         gae_lambda=config.gae_lambda,
     )
 
-    # Advantage normalization (recommended)
     advantages = (advantages - advantages.mean()) / (
         advantages.std() + 1e-8
     )
 
     # ============================================================
-    # Rollout diagnostics (environment + policy sanity)
+    # Rollout diagnostics
     # ============================================================
 
     actions = rollout["actions"].cpu().numpy()
     rewards = rollout["rewards"].cpu().numpy()
+
+    mean_drawdown_penalty = (
+        total_drawdown_penalty / num_sells
+        if num_sells > 0
+        else 0.0
+    )
 
     print("\n================ PPO SMOKE TEST DIAGNOSTICS ================\n")
 
@@ -225,6 +226,7 @@ def train_single_symbol():
         f"SELL={(actions == 2).sum()}"
     )
     print(f"Total episode reward   : {rewards.sum():+.6f}")
+    print(f"Mean drawdown penalty  : {mean_drawdown_penalty:+.6f}")
 
     # ============================================================
     # Advantage diagnostics
@@ -308,6 +310,7 @@ def train_single_symbol():
             print(f" - {r}")
 
     print("===========================================================\n")
+
 
 if __name__ == "__main__":
     train_single_symbol()

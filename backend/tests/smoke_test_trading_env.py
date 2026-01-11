@@ -90,6 +90,7 @@ print("-" * 60)
 # v4 observation invariants
 # ------------------------------------------------------------
 assert obs.shape == (69,), "v4 observation must be 69-dimensional"
+assert env.max_drawdown_in_trade <= 0.0 # added for v4.1 (with reward shaping)
 
 prev_time_in_trade = 0.0
 was_in_position = False
