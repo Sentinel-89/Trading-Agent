@@ -74,7 +74,10 @@ def train_phase_c(
     # Paths
     # ============================================================
 
-    BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Dynamically append the version subfolder to the artifact directory
+    VERSIONED_OUTPUT_DIR = os.path.join(output_dir, env_version)
 
     DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
     CHECKPOINT_DIR = os.path.join(BASE_DIR, "models", "checkpoints")
@@ -284,10 +287,11 @@ def train_phase_c(
     # Write JSON log
     # ============================================================
 
-    os.makedirs(output_dir, exist_ok=True)
+    # This now creates 'backend/artifacts/phase_c/v4.1/' (example)
+    os.makedirs(VERSIONED_OUTPUT_DIR, exist_ok=True)
 
     out_path = os.path.join(
-        output_dir,
+        VERSIONED_OUTPUT_DIR,
         f"phase_c_{env_version}_seed{seed}.json",
     )
 
@@ -295,7 +299,6 @@ def train_phase_c(
         json.dump(run_log, f, indent=2)
 
     print(f"\nPhase-C run completed. Log written to:\n{out_path}\n")
-
 
 # ============================================================
 # CLI
