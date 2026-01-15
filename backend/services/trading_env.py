@@ -169,10 +169,22 @@ class TradingEnv(gym.Env):
     # Core Gym API
     # ============================================================
 
-    def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, dict]:
+    def reset(
+        self,
+        *,
+        seed=None,
+        options=None,
+        symbol: Optional[str] = None,
+    ) -> Tuple[np.ndarray, dict]:
+
         super().reset(seed=seed)
 
-        self.current_symbol = np.random.choice(self.symbols)
+        if symbol is None:
+            self.current_symbol = np.random.choice(self.symbols)
+        else:
+            assert symbol in self.data_by_symbol, f"Unknown symbol: {symbol}"
+            self.current_symbol = symbol
+
         self.df = self.data_by_symbol[self.current_symbol].reset_index(drop=True)
 
         min_start = 29

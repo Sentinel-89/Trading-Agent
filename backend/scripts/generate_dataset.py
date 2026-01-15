@@ -19,10 +19,9 @@ These CSVs will later be consumed by:
     - the GRU pretraining script
     - sequence generation functions in preprocessing.py
     - validation scripts
+    - etc.
 
-The script is designed to be run manually from main:
-    $ python -m backend.scripts.generate_dataset
-    BEFORE: adjust parameters like stocks, start- and end-date (see "CONFIGURATION")
+    BEFORE RUNNING: adjust parameters like stocks, start- and end-date (see "CONFIGURATION")
 """
 
 # --------------------------------------------------------------
@@ -47,12 +46,20 @@ from backend.utils.labeling import add_all_labels
 OUTPUT_DIR = "backend/data/processed"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Symbols to include in your pretraining dataset.
-# Add as many as you want; the GRU learns better with multi-stock datasets.
+# Symbols to include in the dataset.
 DEFAULT_SYMBOLS = [
-    "RELIANCE",
-    "TCS",
-    "ICICIBANK"
+    # Banking & Finance
+    "HDFCBANK", "ICICIBANK", "SBIN",
+    # IT Services
+    "TCS", "INFY", "HCLTECH",
+    # Energy
+    "RELIANCE", "NTPC",
+    # FMCG
+    "ITC", "HINDUNILVR",
+    # Automobiles
+    "MARUTI", "TATAMOTORS",
+    # Metals
+    "TATASTEEL", "JSWSTEEL",
 ]
 
 # Dataset parameters — fully adjustable
