@@ -13,24 +13,28 @@ interface FeatureData {
   Date: string;
   Open: number;
   Close: number;
-  RSI: number;
-  MACD: number;
-  MACD_Signal: number;
-  ATR: number;
-  SMA_50: number;    
-  OBV: number;       
-  ROC_10: number;    
-  SMA_Ratio: number; 
-  RealizedVol_20: number;
-  Action: 'Buy' | 'Sell' | 'Hold';   // Placeholder for the trading action, which will be filled by the RL agent later
+  RSI?: number;
+  MACD?: number;
+  MACD_Signal?: number;
+  ATR?: number;
+  SMA_50?: number;
+  OBV?: number;
+  ROC_10?: number;
+  SMA_Ratio?: number;
+  RealizedVol_20?: number;
+  action: 'Buy' | 'Sell' | 'Hold';
 }
+
+// Helper for safe formatting, fills missing values with N/A
+const fmt = (value: number | undefined, digits = 2) =>
+  typeof value === "number" ? value.toFixed(digits) : "N/A";
 
 
 // Custom Tooltip component for better data display on hover
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const dataPoint = payload[0].payload as FeatureData; // Use FeatureData type
-    const action = dataPoint.Action || 'N/A';
+    const action = dataPoint.action || 'N/A';
     
     const actionColor = action === 'Buy' 
       ? '#2563EB' // Blue
@@ -39,21 +43,26 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       : '#A1A1AA'; // Gray
 
     return (
-      <div className="p-2 border border-gray-300 bg-white shadow-lg rounded">
-        <p className="font-bold text-sm">Date: {label}</p>
-        <hr className="my-1"/>
-        <p className="text-sm">Close: ${dataPoint.Close.toFixed(2)}</p>
-        <p className="text-sm" style={{ color: actionColor }}>Action: {action}</p>
-        <hr className="my-1"/>
-        <p className="text-sm">RSI: {dataPoint.RSI.toFixed(2)}</p>
-        <p className="text-sm">MACD: {dataPoint.MACD.toFixed(2)} / Signal: {dataPoint.MACD_Signal.toFixed(2)}</p>
-        <p className="text-sm">ATR: {dataPoint.ATR.toFixed(2)}</p>
-        <p className="text-sm">SMA_50: {dataPoint.SMA_50.toFixed(2)}</p>
-        <p className="text-sm">OBV: {dataPoint.OBV.toFixed(0)}</p>
-        <p className="text-sm">ROC_10: {dataPoint.ROC_10.toFixed(2)}%</p>
-        <p className="text-sm">SMA_Ratio: {dataPoint.SMA_Ratio.toFixed(4)}</p>
-        <p className="text-sm">RealizedVol_20: {dataPoint.RealizedVol_20.toFixed(4)}</p>
-      </div>
+    <div className="p-2 border border-gray-300 bg-white shadow-lg rounded">
+      <p className="font-bold text-sm">Date: {label}</p>
+      <hr className="my-1"/>
+      
+      <p className="text-sm">Close: ${fmt(dataPoint.Close, 2)}</p>
+      <p className="text-sm" style={{ color: actionColor }}>Action: {action}</p>
+      
+      <hr className="my-1"/>
+      
+      <p className="text-sm">RSI: {fmt(dataPoint.RSI, 2)}</p>
+      <p className="text-sm">
+        MACD: {fmt(dataPoint.MACD, 2)} / Signal: {fmt(dataPoint.MACD_Signal, 2)}
+      </p>
+      <p className="text-sm">ATR: {fmt(dataPoint.ATR, 2)}</p>
+      <p className="text-sm">SMA_50: {fmt(dataPoint.SMA_50, 2)}</p>
+      <p className="text-sm">OBV: {fmt(dataPoint.OBV, 0)}</p>
+      <p className="text-sm">ROC_10: {fmt(dataPoint.ROC_10, 2)}%</p>
+      <p className="text-sm">SMA_Ratio: {fmt(dataPoint.SMA_Ratio, 4)}</p>
+      <p className="text-sm">RealizedVol_20: {fmt(dataPoint.RealizedVol_20, 4)}</p>
+    </div>
     );
   }
   return null;
@@ -99,12 +108,12 @@ const ChartingDashboard: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        // The symbol in the URL is now the state variable, not a constant
+        // symbol in the URL is now the state variable, not a constant (resolve dynamically!)
         const response = await axios.get(`http://localhost:8000/api/v1/features/${activeSymbol}`, {
           params: { start_date: startDate }
         });
 
-        // ... (rest of the processing logic remains the same) ...
+        // Hardcoded Placeholder Logic: 'Buy' at the 10th and 50th data point, 'Sell' at the 30th and 70th data point.
         const processedData: FeatureData[] = response.data.features.map((item: any, index: number) => ({ 
           ...item,
           Action: (index === 10 || index === 50) ? 'Buy' : 
@@ -156,7 +165,14 @@ const ChartingDashboard: React.FC = () => {
           Fetch Symbol
         </button>
         {/* Placeholder for the Run Simulation button */}
-        <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Run Simulation</button>
+        <button
+          disabled
+          title="Agent inference not wired yet"
+          className="px-4 py-2 bg-blue-600 text-white rounded opacity-60 cursor-not-allowed"
+        >
+          Run Agent
+        </button>
+
       </div>
       {/* ------------------------------------------------------------------ */}
 

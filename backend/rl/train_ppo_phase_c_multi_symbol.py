@@ -73,7 +73,7 @@ def train_phase_c(
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    # Dynamically append the version subfolder to the artifact directory
+    # Dynamically append the env_version subfolder under phase_c_multi/
     VERSIONED_OUTPUT_DIR = os.path.join(output_dir, env_version)
 
     DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
@@ -122,7 +122,7 @@ def train_phase_c(
         # FMCG
         "ITC", "HINDUNILVR",
         # Automobiles
-        "MARUTI", "TATAMOTORS",
+        "MARUTI", "TMPV",
         # Metals
         "TATASTEEL", "JSWSTEEL",
     ]
@@ -337,7 +337,7 @@ if __name__ == "__main__":
     parser.add_argument("--env_version", type=str, default="v4.1")
     parser.add_argument("--num_episodes", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--output_dir", type=str, default="backend/artifacts/phase_c")
+    parser.add_argument("--output_dir", type=str, default="backend/artifacts/phase_c_multi")
 
     args = parser.parse_args()
 

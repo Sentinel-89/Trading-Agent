@@ -57,7 +57,7 @@ DEFAULT_SYMBOLS = [
     # FMCG
     "ITC", "HINDUNILVR",
     # Automobiles
-    "MARUTI", "TATAMOTORS",
+    "MARUTI", "TMPV",
     # Metals
     "TATASTEEL", "JSWSTEEL",
 ]
