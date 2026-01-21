@@ -232,6 +232,7 @@ def train_phase_d(
             config.entropy_coef,
             config.num_epochs,
             config.batch_size,
+            config.max_grad_norm,   
         )
 
         # --------------------------------------------------------

@@ -17,6 +17,7 @@ def ppo_update(
     entropy_coef: float,
     num_epochs: int,
     batch_size: int,
+    max_grad_norm: float,   # NEW
 ):
     """
     Perform PPO updates using rollout data from a single environment.
@@ -67,11 +68,9 @@ def ppo_update(
         for obs_b, act_b, old_logp_b, adv_b, ret_b in loader:
 
             logits, value = policy(obs_b)
-
             dist = Categorical(logits=logits)
 
             new_logp = dist.log_prob(act_b)
-
             ratio = torch.exp(new_logp - old_logp_b)
 
             unclipped = ratio * adv_b
@@ -100,6 +99,15 @@ def ppo_update(
 
             optimizer.zero_grad()
             loss.backward()
+
+            # ====================================================
+            # ✅ Gradient clipping (critical for Phase-D stability)
+            # ====================================================
+            torch.nn.utils.clip_grad_norm_(
+                policy.parameters(),
+                max_grad_norm,
+            )
+
             optimizer.step()
 
             # ----------------------------------------------------
@@ -111,14 +119,8 @@ def ppo_update(
             entropies.append(entropy.item())
 
     # ============================================================
-    # Return averaged diagnostics (smoke test contract)
+    # Return averaged diagnostics
     # ============================================================
-    # That means you collect:
-    # one policy_loss
-    # one value_loss
-    # one entropy
-    # for every minibatch update across all epochs.
-    # i.e. they are averaged over all minibatch gradient steps across all PPO epochs for a single rollout
 
     return {
         "policy_loss": float(sum(policy_losses) / len(policy_losses)),

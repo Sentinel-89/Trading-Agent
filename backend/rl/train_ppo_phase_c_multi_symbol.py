@@ -252,19 +252,21 @@ def train_phase_c(
         # --------------------------------------------------------
 
         stats = ppo_update(
-            policy=policy,
-            optimizer=optimizer,
-            observations=rollout["latents"],
-            actions=rollout["actions"],
-            old_log_probs=rollout["log_probs"],
-            advantages=advantages,
-            returns=returns,
-            clip_eps=config.clip_eps,
-            value_coef=config.value_coef,
-            entropy_coef=config.entropy_coef,
-            num_epochs=config.num_epochs,
-            batch_size=config.batch_size,
+            policy,
+            optimizer,
+            rollout["latents"],
+            rollout["actions"],
+            rollout["log_probs"],
+            advantages,
+            returns,
+            config.clip_eps,
+            config.value_coef,
+            config.entropy_coef,
+            config.num_epochs,
+            config.batch_size,
+            config.max_grad_norm,   # 👈 NEW
         )
+
 
         # --------------------------------------------------------
         # Episode diagnostics
