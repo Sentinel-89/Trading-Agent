@@ -18,13 +18,34 @@ def compute_gae(
       - rewards, values, dones are 1D tensors of equal length
       - values[t] corresponds to V(s_t)
       - dones[t] indicates whether the episode terminated at step t
+
+    IMPORTANT (DEVICE SAFETY)
+    ------------------------------------------------------------
+    During GPU training (Phase-D), `values` typically resides on CUDA
+    while `rewards` and `dones` may originate from CPU buffers.
+
+    To avoid silent CPU/GPU mismatches, all tensors are explicitly
+    moved onto the device of `values` before computation.
     """
+
+    # ------------------------------------------------------------
+    # Device unification
+    # ------------------------------------------------------------
+    device = values.device
+
+    rewards = rewards.to(device)
+    dones = dones.to(device)
+    values = values.to(device)
 
     # Number of timesteps in rollout */
     T = rewards.size(0)
 
     # Storage for advantages */
-    advantages = torch.zeros(T, dtype=torch.float32)
+    advantages = torch.zeros(
+        T,
+        dtype=torch.float32,
+        device=device,
+    )
 
     # Running advantage accumulator (A_{t+1}) */
     gae = 0.0
