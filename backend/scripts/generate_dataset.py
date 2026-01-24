@@ -1,4 +1,3 @@
-# backend/scripts/generate_dataset.py
 """
 Dataset Generation Script
 ==============================================================
@@ -63,8 +62,8 @@ DEFAULT_SYMBOLS = [
 ]
 
 # Dataset parameters — fully adjustable
-START_DATE = "2020-01-01"
-END_DATE = "2024-12-31"
+START_DATE = "2024-10-20"
+END_DATE = "2025-12-31"
 TREND_HORIZON = 1     # predict next-day direction
 RETURN_HORIZON = 3    # predict 3-day returns
 
