@@ -3,10 +3,7 @@ import torch
 
 class RolloutBuffer:
     """
-    PPO Rollout Buffer (Single-Environment, v1)
-
-    This buffer stores a fixed-length sequence of on-policy interaction data
-    collected from exactly one environment (TradingEnv v1).
+    PPO Rollout Buffer (Parallel-Environment, v5)
 
     It acts as a temporary container between:
       - Environment rollouts
@@ -30,10 +27,13 @@ class RolloutBuffer:
         """
 
         # Latent observations produced by the frozen GRU encoder 
-        self.latents = []
+        self.observations = []
 
         # Actions sampled from the policy */
         self.actions = []
+
+        self.action_masks = []          # mask actually used by the policy
+        self.true_action_masks = [] 
 
         # Log-probabilities of sampled actions (for PPO ratio) 
         self.log_probs = []
@@ -53,7 +53,9 @@ class RolloutBuffer:
         Called after each PPO update cycle.
         """
 
-        self.latents.clear()
+        self.observations.clear()
+        self.action_masks.clear()
+        self.true_action_masks.clear()
         self.actions.clear()
         self.log_probs.clear()
         self.values.clear()
@@ -62,12 +64,15 @@ class RolloutBuffer:
 
     def add(
         self,
-        latent: torch.Tensor,
+        observations: torch.Tensor,
         action: torch.Tensor,
+        action_masks: torch.Tensor,
         log_prob: torch.Tensor,
         value: torch.Tensor,
         reward: float,
         done: bool,
+        true_action_masks: torch.Tensor | None = None,
+
     ):
         """
         Add one environment step to the rollout buffer.
@@ -82,14 +87,15 @@ class RolloutBuffer:
         """
 
         # Store detached tensors to avoid backprop through rollout collection
-        self.latents.append(latent.detach())
-        self.actions.append(action.detach())
-        self.log_probs.append(log_prob.detach())
-        self.values.append(value.detach())
-
-        # Rewards and done flags are stored as raw Python scalars
-        self.rewards.append(reward)
-        self.dones.append(done)
+        self.observations.append(observations.detach().to(dtype=torch.float32))
+        self.action_masks.append(action_masks.detach().to(dtype=torch.float32))
+        if true_action_masks is not None:
+            self.true_action_masks.append(true_action_masks.detach().to(dtype=torch.float32))
+        self.actions.append(action.detach())  # keep integer dtype
+        self.log_probs.append(log_prob.detach().to(dtype=torch.float32))
+        self.values.append(value.detach().to(dtype=torch.float32))
+        self.rewards.append(reward.detach().to(dtype=torch.float32))
+        self.dones.append(done.detach().to(dtype=torch.float32))
 
     def size(self) -> int:
         """
@@ -98,35 +104,44 @@ class RolloutBuffer:
 
         return len(self.rewards)
 
-    def get_tensors(self):
-        """
-        Stack stored rollout data into tensors.
+    def get_tensors(self, flatten: bool = True):
 
-        Returns:
-        A dictionary containing:
-          - latents   : Tensor[T, latent_dim]
-          - actions   : Tensor[T]
-          - log_probs : Tensor[T]
-          - values    : Tensor[T]
-          - rewards   : Tensor[T]
-          - dones     : Tensor[T]
-        """
 
-        # Stack tensors along time dimension */
-        latents = torch.stack(self.latents)
-        actions = torch.stack(self.actions)
-        log_probs = torch.stack(self.log_probs)
-        values = torch.stack(self.values)
+        observations = torch.stack(self.observations)  # (T, N, D)
+        action_masks = torch.stack(self.action_masks)  # (T, N, A)
+        true_action_masks = None
+        if len(self.true_action_masks) > 0:
+            true_action_masks = torch.stack(self.true_action_masks)  # (T, N, A)
+        actions = torch.stack(self.actions)            # (T, N)
+        log_probs = torch.stack(self.log_probs)        # (T, N)
+        values = torch.stack(self.values)               # (T, N)
+        rewards = torch.stack(self.rewards)             # (T, N)
+        dones = torch.stack(self.dones)                 # (T, N)
 
-        # Convert rewards and dones to tensors */
-        rewards = torch.tensor(self.rewards, dtype=torch.float32)
-        dones = torch.tensor(self.dones, dtype=torch.float32)
+        if flatten:
+            T, N = actions.shape
 
-        return {
-            "latents": latents,
+            observations = observations.reshape(T * N, -1)
+            action_masks = action_masks.reshape(T * N, -1)
+            if true_action_masks is not None:
+                true_action_masks = true_action_masks.reshape(T * N, -1)
+            actions = actions.reshape(T * N)
+            log_probs = log_probs.reshape(T * N)
+            values = values.reshape(T * N)
+            rewards = rewards.reshape(T * N)
+            dones = dones.reshape(T * N)
+
+        out = {
+            "observations": observations,
+            "action_masks": action_masks,
             "actions": actions,
             "log_probs": log_probs,
             "values": values,
             "rewards": rewards,
             "dones": dones,
         }
+
+        if true_action_masks is not None:
+            out["true_action_masks"] = true_action_masks
+
+        return out

@@ -4,7 +4,7 @@ import os
 import joblib
 import pandas as pd
 
-from backend.services.trading_env import TradingEnv
+from backend.rl.trading_env_n import TradingEnv
 
 # ------------------------------------------------------------
 # Paths (adjust only if you move files)
