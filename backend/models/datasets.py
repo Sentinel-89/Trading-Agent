@@ -6,7 +6,6 @@ Its responsibility is *purely data handling*:
     - load labeled CSVs
     - apply scaling
     - create sliding windows (sequences)
-    - exp
 """
 # backend/models/datasets.py
 """
