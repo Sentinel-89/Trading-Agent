@@ -1,0 +1,98 @@
+{
+  "HCLTECH": {
+    "return": -0.0728897094966201,
+    "max_drawdown": -0.22640158916411002,
+    "sharpe": -0.319217425853373,
+    "buy_hold": {
+      "return": -0.1822844681961976,
+      "max_drawdown": -0.3629244345742504,
+      "sharpe": -0.6312571937310318
+    },
+    "excess_return_vs_bh": 0.10939475869957749,
+    "trades": {
+      "buys": 81,
+      "sells": 81,
+      "holds": 57
+    }
+  },
+  "HDFCBANK": {
+    "return": 0.18583950147429107,
+    "max_drawdown": -0.1117087395456571,
+    "sharpe": 0.8579173718513555,
+    "buy_hold": {
+      "return": 0.1638129733289433,
+      "max_drawdown": -0.13379017784304137,
+      "sharpe": 0.6006272905377081
+    },
+    "excess_return_vs_bh": 0.02202652814534778,
+    "trades": {
+      "buys": 83,
+      "sells": 82,
+      "holds": 54
+    }
+  },
+  "HINDUNILVR": {
+    "return": -0.15364495443806958,
+    "max_drawdown": -0.17400752193898858,
+    "sharpe": -1.5356574666147265,
+    "buy_hold": {
+      "return": -0.01565183258917613,
+      "max_drawdown": -0.17935730299759195,
+      "sharpe": -0.07294974744865722
+    },
+    "excess_return_vs_bh": -0.13799312184889345,
+    "trades": {
+      "buys": 1,
+      "sells": 0,
+      "holds": 218
+    }
+  },
+  "ICICIBANK": {
+    "return": 0.11576372387107714,
+    "max_drawdown": -0.12444710245950652,
+    "sharpe": 0.6882854307753283,
+    "buy_hold": {
+      "return": 0.05887060471164918,
+      "max_drawdown": -0.1396314129171508,
+      "sharpe": 0.24389159200559704
+    },
+    "excess_return_vs_bh": 0.05689311915942796,
+    "trades": {
+      "buys": 44,
+      "sells": 43,
+      "holds": 132
+    }
+  },
+  "INFY": {
+    "return": -0.17481839119335096,
+    "max_drawdown": -0.3184963866212186,
+    "sharpe": -0.6437890056627692,
+    "buy_hold": {
+      "return": -0.1632155145448858,
+      "max_drawdown": -0.33880982798062936,
+      "sharpe": -0.507074298479616
+    },
+    "excess_return_vs_bh": -0.011602876648465155,
+    "trades": {
+      "buys": 6,
+      "sells": 5,
+      "holds": 208
+    }
+  },
+  "ITC": {
+    "return": 0.05126849706724501,
+    "max_drawdown": -0.22590782122905018,
+    "sharpe": 0.14767552952118973,
+    "buy_hold": {
+      "return": -0.13340765514678554,
+      "max_drawdown": -0.37916549985998327,
+      "sharpe": -0.28775956381653467
+    },
+    "excess_return_vs_bh": 0.18467615221403055,
+    "trades": {
+      "buys": 2,
+      "sells": 2,
+      "holds": 215
+    }
+  }
+}

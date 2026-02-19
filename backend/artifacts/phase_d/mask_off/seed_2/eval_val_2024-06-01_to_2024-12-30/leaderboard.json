@@ -1,0 +1,34 @@
+{
+  "score_metric": "excess_return",
+  "dd_penalty": 1.0,
+  "split": "val",
+  "start_date": "2024-06-01",
+  "end_date": "2024-12-30",
+  "topk": [
+    {
+      "rank": 1,
+      "checkpoint": "ppo_step_03900.pt",
+      "score": 0.041167232934054825
+    },
+    {
+      "rank": 2,
+      "checkpoint": "ppo_step_03400.pt",
+      "score": 0.027201174378844315
+    },
+    {
+      "rank": 3,
+      "checkpoint": "ppo_step_01800.pt",
+      "score": 0.019600864914574023
+    },
+    {
+      "rank": 4,
+      "checkpoint": "ppo_step_01600.pt",
+      "score": 0.012488876860842435
+    },
+    {
+      "rank": 5,
+      "checkpoint": "ppo_step_00700.pt",
+      "score": 0.011826722119155966
+    }
+  ]
+}

@@ -1,0 +1,315 @@
+{
+  "split": "val",
+  "start_date": "2024-06-01",
+  "end_date": "2024-12-30",
+  "dd_penalty": 1.0,
+  "topk": [
+    {
+      "checkpoint": "ppo_step_01200.pt",
+      "score": 0.020905604931608385,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02300.pt",
+      "score": 0.009354640716941911,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01000.pt",
+      "score": 0.009272989999598453,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00900.pt",
+      "score": 0.0004804755490407296,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00800.pt",
+      "score": -0.011514422260418966,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03300.pt",
+      "score": -0.012597363960715544,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04200.pt",
+      "score": -0.016320506290500286,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03500.pt",
+      "score": -0.02051284207144257,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03800.pt",
+      "score": -0.021715919792000694,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03900.pt",
+      "score": -0.02419996618427672,
+      "invalid_actions_total": 0
+    }
+  ],
+  "all": [
+    {
+      "checkpoint": "ppo_step_01200.pt",
+      "score": 0.020905604931608385,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02300.pt",
+      "score": 0.009354640716941911,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01000.pt",
+      "score": 0.009272989999598453,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00900.pt",
+      "score": 0.0004804755490407296,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00800.pt",
+      "score": -0.011514422260418966,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03300.pt",
+      "score": -0.012597363960715544,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04200.pt",
+      "score": -0.016320506290500286,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03500.pt",
+      "score": -0.02051284207144257,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03800.pt",
+      "score": -0.021715919792000694,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03900.pt",
+      "score": -0.02419996618427672,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01800.pt",
+      "score": -0.028893973914381508,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03400.pt",
+      "score": -0.030447093928939017,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04900.pt",
+      "score": -0.032369567668048445,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00600.pt",
+      "score": -0.03420821466999073,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02900.pt",
+      "score": -0.0346653734476971,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02700.pt",
+      "score": -0.03814306600996199,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04400.pt",
+      "score": -0.04130065438256113,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02400.pt",
+      "score": -0.045964107797794654,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04500.pt",
+      "score": -0.048318283542636356,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04700.pt",
+      "score": -0.06243505739271034,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02200.pt",
+      "score": -0.07912774580960209,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04600.pt",
+      "score": -0.08076107833532417,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04800.pt",
+      "score": -0.08151818465112666,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03600.pt",
+      "score": -0.08567673379954248,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01900.pt",
+      "score": -0.09196519907765811,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02100.pt",
+      "score": -0.09495996634630048,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01300.pt",
+      "score": -0.0966497346111196,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03200.pt",
+      "score": -0.0968976238875597,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04300.pt",
+      "score": -0.10143093182485521,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03100.pt",
+      "score": -0.10327095036155749,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02500.pt",
+      "score": -0.11142322350076236,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02000.pt",
+      "score": -0.11665093007130108,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02600.pt",
+      "score": -0.11897502341795456,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00400.pt",
+      "score": -0.12401937193926847,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04000.pt",
+      "score": -0.1272446372535328,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01400.pt",
+      "score": -0.12802834213082062,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00700.pt",
+      "score": -0.1345962573133159,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "latest.pt",
+      "score": -0.13881253613611136,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_05000.pt",
+      "score": -0.13881253613611136,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03700.pt",
+      "score": -0.16114092660648494,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_02800.pt",
+      "score": -0.17193835502404423,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00500.pt",
+      "score": -0.17253743288110002,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01100.pt",
+      "score": -0.17360978397563548,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01700.pt",
+      "score": -0.17716629024436772,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_04100.pt",
+      "score": -0.17797131548186185,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01600.pt",
+      "score": -0.17828442788320403,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_03000.pt",
+      "score": -0.18034555931280263,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00300.pt",
+      "score": -0.18511731812179863,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00200.pt",
+      "score": -0.18553970389124827,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_00100.pt",
+      "score": -0.1880357233616034,
+      "invalid_actions_total": 0
+    },
+    {
+      "checkpoint": "ppo_step_01500.pt",
+      "score": -0.19693693684165095,
+      "invalid_actions_total": 0
+    }
+  ]
+}

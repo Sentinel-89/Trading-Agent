@@ -1,0 +1,59 @@
+{
+  "val_window": {
+    "start": "2024-06-01",
+    "end": "2024-12-30"
+  },
+  "score_formula": "score = 1.00*sharpe + 0.50*total_return - 1.50*abs(max_drawdown) - 0.05*turnover",
+  "top5": [
+    {
+      "checkpoint": "ppo_step_01899.pt",
+      "checkpoint_path": "backend/artifacts/phase_d_continuous/seed_1/checkpoints/ppo_step_01899.pt",
+      "val_json": "backend/artifacts/phase_d_continuous/seed_1/eval_compare_test/val/ppo_step_01899.json",
+      "score": -0.7175491666987324,
+      "sharpe": -0.461466508891227,
+      "total_return": -0.029351678584476848,
+      "max_drawdown": -0.09258012364222344,
+      "turnover": 2.050732661038637
+    },
+    {
+      "checkpoint": "ppo_step_01799.pt",
+      "checkpoint_path": "backend/artifacts/phase_d_continuous/seed_1/checkpoints/ppo_step_01799.pt",
+      "val_json": "backend/artifacts/phase_d_continuous/seed_1/eval_compare_test/val/ppo_step_01799.json",
+      "score": -0.7218049559249351,
+      "sharpe": -0.466634199996665,
+      "total_return": -0.029193773604791806,
+      "max_drawdown": -0.0924768664203295,
+      "turnover": 2.0371713899075985
+    },
+    {
+      "checkpoint": "ppo_step_01699.pt",
+      "checkpoint_path": "backend/artifacts/phase_d_continuous/seed_1/checkpoints/ppo_step_01699.pt",
+      "val_json": "backend/artifacts/phase_d_continuous/seed_1/eval_compare_test/val/ppo_step_01699.json",
+      "score": -0.7741147219177225,
+      "sharpe": -0.5172764859408722,
+      "total_return": -0.033012293654446245,
+      "max_drawdown": -0.09340635995644543,
+      "turnover": 2.004450984299183
+    },
+    {
+      "checkpoint": "latest.pt",
+      "checkpoint_path": "backend/artifacts/phase_d_continuous/seed_1/checkpoints/latest.pt",
+      "val_json": "backend/artifacts/phase_d_continuous/seed_1/eval_compare_test/val/latest.json",
+      "score": -0.7785632748843292,
+      "sharpe": -0.5192655783426181,
+      "total_return": -0.03327218209597782,
+      "max_drawdown": -0.09343741765717525,
+      "turnover": 2.0501095801591873
+    },
+    {
+      "checkpoint": "ppo_step_01999.pt",
+      "checkpoint_path": "backend/artifacts/phase_d_continuous/seed_1/checkpoints/ppo_step_01999.pt",
+      "val_json": "backend/artifacts/phase_d_continuous/seed_1/eval_compare_test/val/ppo_step_01999.json",
+      "score": -0.7785632748843292,
+      "sharpe": -0.5192655783426181,
+      "total_return": -0.03327218209597782,
+      "max_drawdown": -0.09343741765717525,
+      "turnover": 2.0501095801591873
+    }
+  ]
+}

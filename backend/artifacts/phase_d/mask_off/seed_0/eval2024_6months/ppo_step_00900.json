@@ -1,0 +1,268 @@
+{
+  "HCLTECH": {
+    "return": 0.2051133759533441,
+    "max_drawdown": -0.062031467877654546,
+    "sharpe": 1.9338724170061043,
+    "buy_hold": {
+      "return": 0.22894367991845077,
+      "max_drawdown": -0.0610925604380926,
+      "sharpe": 2.0682029457179767
+    },
+    "excess_return_vs_bh": -0.02383030396510666,
+    "trades": {
+      "chosen_buys": 41,
+      "chosen_sells": 19,
+      "chosen_holds": 55,
+      "executed_buys": 20,
+      "executed_sells": 20,
+      "invalid_actions": 21
+    }
+  },
+  "HDFCBANK": {
+    "return": 0.09299254639419918,
+    "max_drawdown": -0.0928563418189974,
+    "sharpe": 1.0030085209416293,
+    "buy_hold": {
+      "return": 0.09617755856966714,
+      "max_drawdown": -0.09285634181899745,
+      "sharpe": 1.0276887181776813
+    },
+    "excess_return_vs_bh": -0.0031850121754679606,
+    "trades": {
+      "chosen_buys": 43,
+      "chosen_sells": 1,
+      "chosen_holds": 71,
+      "executed_buys": 2,
+      "executed_sells": 2,
+      "invalid_actions": 41
+    }
+  },
+  "HINDUNILVR": {
+    "return": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe": 0.0,
+    "buy_hold": {
+      "return": -0.10563675914971571,
+      "max_drawdown": -0.22974690858661734,
+      "sharpe": -1.133894334827567
+    },
+    "excess_return_vs_bh": 0.10563675914971571,
+    "trades": {
+      "chosen_buys": 0,
+      "chosen_sells": 115,
+      "chosen_holds": 0,
+      "executed_buys": 0,
+      "executed_sells": 0,
+      "invalid_actions": 115
+    }
+  },
+  "ICICIBANK": {
+    "return": -0.04244922135032714,
+    "max_drawdown": -0.09504071760333158,
+    "sharpe": -0.5290220752351432,
+    "buy_hold": {
+      "return": 0.05260376438066583,
+      "max_drawdown": -0.08625649071687407,
+      "sharpe": 0.5525340074306977
+    },
+    "excess_return_vs_bh": -0.09505298573099297,
+    "trades": {
+      "chosen_buys": 82,
+      "chosen_sells": 33,
+      "chosen_holds": 0,
+      "executed_buys": 34,
+      "executed_sells": 34,
+      "invalid_actions": 48
+    }
+  },
+  "INFY": {
+    "return": 0.06846403213830632,
+    "max_drawdown": -0.07854423114420231,
+    "sharpe": 0.911000871183394,
+    "buy_hold": {
+      "return": 0.11654608828095259,
+      "max_drawdown": -0.10868350185458055,
+      "sharpe": 1.031910981822248
+    },
+    "excess_return_vs_bh": -0.04808205614264627,
+    "trades": {
+      "chosen_buys": 41,
+      "chosen_sells": 62,
+      "chosen_holds": 12,
+      "executed_buys": 17,
+      "executed_sells": 17,
+      "invalid_actions": 69
+    }
+  },
+  "ITC": {
+    "return": 0.026461678303492775,
+    "max_drawdown": -0.12628931652289319,
+    "sharpe": 0.23821785359902145,
+    "buy_hold": {
+      "return": 0.029316367265469045,
+      "max_drawdown": -0.12551144531681957,
+      "sharpe": 0.2538486653051062
+    },
+    "excess_return_vs_bh": -0.0028546889619762705,
+    "trades": {
+      "chosen_buys": 91,
+      "chosen_sells": 1,
+      "chosen_holds": 23,
+      "executed_buys": 2,
+      "executed_sells": 2,
+      "invalid_actions": 89
+    }
+  },
+  "JSWSTEEL": {
+    "return": -0.03537518362284198,
+    "max_drawdown": -0.13487633529015486,
+    "sharpe": -0.2848272517305398,
+    "buy_hold": {
+      "return": -0.03515079961360956,
+      "max_drawdown": -0.1348763352901549,
+      "sharpe": -0.28952041678134377
+    },
+    "excess_return_vs_bh": -0.00022438400923241453,
+    "trades": {
+      "chosen_buys": 92,
+      "chosen_sells": 1,
+      "chosen_holds": 22,
+      "executed_buys": 2,
+      "executed_sells": 2,
+      "invalid_actions": 90
+    }
+  },
+  "MARUTI": {
+    "return": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe": 0.0,
+    "buy_hold": {
+      "return": -0.1459195900015422,
+      "max_drawdown": -0.20443700168943946,
+      "sharpe": -1.4169504754754652
+    },
+    "excess_return_vs_bh": 0.1459195900015422,
+    "trades": {
+      "chosen_buys": 0,
+      "chosen_sells": 3,
+      "chosen_holds": 112,
+      "executed_buys": 0,
+      "executed_sells": 0,
+      "invalid_actions": 3
+    }
+  },
+  "NTPC": {
+    "return": -0.14266113787144397,
+    "max_drawdown": -0.2522563176895306,
+    "sharpe": -1.231007277063386,
+    "buy_hold": {
+      "return": -0.14067159341371716,
+      "max_drawdown": -0.2522563176895308,
+      "sharpe": -1.2211789984020982
+    },
+    "excess_return_vs_bh": -0.0019895444577268107,
+    "trades": {
+      "chosen_buys": 103,
+      "chosen_sells": 1,
+      "chosen_holds": 11,
+      "executed_buys": 2,
+      "executed_sells": 2,
+      "invalid_actions": 101
+    }
+  },
+  "RELIANCE": {
+    "return": -0.24924504822439042,
+    "max_drawdown": -0.25184543313021274,
+    "sharpe": -3.1853328193301187,
+    "buy_hold": {
+      "return": -0.2419859754570498,
+      "max_drawdown": -0.24536689206110696,
+      "sharpe": -3.011143693673078
+    },
+    "excess_return_vs_bh": -0.007259072767340613,
+    "trades": {
+      "chosen_buys": 114,
+      "chosen_sells": 1,
+      "chosen_holds": 0,
+      "executed_buys": 2,
+      "executed_sells": 2,
+      "invalid_actions": 112
+    }
+  },
+  "SBIN": {
+    "return": -0.21307148369335993,
+    "max_drawdown": -0.21228376746082075,
+    "sharpe": -2.4793941999213014,
+    "buy_hold": {
+      "return": -0.10557667215067801,
+      "max_drawdown": -0.13983548766157458,
+      "sharpe": -0.9362767676403154
+    },
+    "excess_return_vs_bh": -0.10749481154268192,
+    "trades": {
+      "chosen_buys": 65,
+      "chosen_sells": 50,
+      "chosen_holds": 0,
+      "executed_buys": 51,
+      "executed_sells": 51,
+      "invalid_actions": 14
+    }
+  },
+  "TATASTEEL": {
+    "return": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe": 0.0,
+    "buy_hold": {
+      "return": -0.17918507609229273,
+      "max_drawdown": -0.18790601663529852,
+      "sharpe": -1.433688647656228
+    },
+    "excess_return_vs_bh": 0.17918507609229273,
+    "trades": {
+      "chosen_buys": 0,
+      "chosen_sells": 115,
+      "chosen_holds": 0,
+      "executed_buys": 0,
+      "executed_sells": 0,
+      "invalid_actions": 115
+    }
+  },
+  "TCS": {
+    "return": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe": 0.0,
+    "buy_hold": {
+      "return": -0.0024944833541206135,
+      "max_drawdown": -0.1294757068350261,
+      "sharpe": -0.019791651245629243
+    },
+    "excess_return_vs_bh": 0.0024944833541206135,
+    "trades": {
+      "chosen_buys": 0,
+      "chosen_sells": 115,
+      "chosen_holds": 0,
+      "executed_buys": 0,
+      "executed_sells": 0,
+      "invalid_actions": 115
+    }
+  },
+  "TMPV": {
+    "return": -0.21697585585243262,
+    "max_drawdown": -0.22933472166750404,
+    "sharpe": -2.608671963140106,
+    "buy_hold": {
+      "return": -0.283901609130219,
+      "max_drawdown": -0.3783986499156197,
+      "sharpe": -2.045231768323485
+    },
+    "excess_return_vs_bh": 0.06692575327778638,
+    "trades": {
+      "chosen_buys": 50,
+      "chosen_sells": 65,
+      "chosen_holds": 0,
+      "executed_buys": 50,
+      "executed_sells": 50,
+      "invalid_actions": 15
+    }
+  }
+}

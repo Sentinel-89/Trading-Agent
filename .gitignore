@@ -6,5 +6,4 @@ backend/utils/__pycache__/
 *.pyc
 backend/utils/test_kite_auth
 # Experiment artifacts
-backend/artifacts/
 

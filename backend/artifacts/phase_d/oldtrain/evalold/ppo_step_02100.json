@@ -1,0 +1,66 @@
+{
+  "HCLTECH": {
+    "return": -0.201103359144988,
+    "max_drawdown": -0.29843131282363683,
+    "sharpe": -0.7601664988298134,
+    "buy_hold": {
+      "return": 0.3614503021462807,
+      "max_drawdown": -0.27299629207073584,
+      "sharpe": 1.1124357356144812
+    },
+    "excess_return_vs_bh": -0.5625536612912687,
+    "trades": {
+      "buys": 158,
+      "sells": 1,
+      "holds": 60
+    }
+  },
+  "HDFCBANK": {
+    "return": 0.16649575276376738,
+    "max_drawdown": -0.21726096003950202,
+    "sharpe": 0.6336846879374501,
+    "buy_hold": {
+      "return": 0.06619469026548663,
+      "max_drawdown": -0.2786421499292786,
+      "sharpe": 0.17708341891657062
+    },
+    "excess_return_vs_bh": 0.10030106249828075,
+    "trades": {
+      "buys": 168,
+      "sells": 1,
+      "holds": 50
+    }
+  },
+  "HINDUNILVR": {
+    "return": 0.1987192045243651,
+    "max_drawdown": -0.27299629207073584,
+    "sharpe": 0.691455097618905,
+    "buy_hold": {
+      "return": -0.13831066118316981,
+      "max_drawdown": -0.25567032846914794,
+      "sharpe": -0.6305236844047957
+    },
+    "excess_return_vs_bh": 0.3370298657075349,
+    "trades": {
+      "buys": 170,
+      "sells": 1,
+      "holds": 48
+    }
+  },
+  "ICICIBANK": {
+    "return": 0.19839569383184164,
+    "max_drawdown": -0.18560455568798828,
+    "sharpe": 0.3959738955841536,
+    "buy_hold": {
+      "return": 0.394534526139223,
+      "max_drawdown": -0.10948835886006895,
+      "sharpe": 0.9685276679674588
+    },
+    "excess_return_vs_bh": -0.19613883230738138,
+    "trades": {
+      "buys": 207,
+      "sells": 4,
+      "holds": 8
+    }
+  }
+}
