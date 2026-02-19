@@ -1,43 +1,61 @@
 
-"""backend/rl/evaluation_runner_continuous.py
+"""backend/rl_evaluation/evaluation_runner_continuous.py
 
 Deterministic evaluation for CONTINUOUS portfolio PPO checkpoints.
 
-What it does
-------------
-For each checkpoint, this script runs a *deterministic* backtest (policy mean action)
-over a chosen test date range and writes ONE JSON result per checkpoint.
+What this script does (updated)
+------------------------------
+1) VALIDATION pass (default: 2024-06-01 .. 2024-12-30)
+   - Evaluate every checkpoint deterministically and save ONE JSON per checkpoint.
+   - Rank checkpoints by a single scalar score (documented below).
+   - Print and save the Top-5 checkpoints.
 
-For each checkpoint we produce **four** equity curves:
-  1) full_daily   : no top-k restriction, rebalance every step
-  2) full_weekly  : no top-k restriction, rebalance every N steps (default N=5)
-  3) topk_daily   : enforce top-k holdings, rebalance every step
-  4) topk_weekly  : enforce top-k holdings, rebalance every N steps
+2) TEST pass (default: 2025-01-01 .. 2025-12-30)
+   - Take the best 2 checkpoints from validation.
+   - Evaluate again deterministically and save ONE JSON per checkpoint.
+   - For each of the best checkpoints, also plot 4 comparisons vs a BUY-&-HOLD baseline:
+       (a) BH vs full_daily   (no top-k, rebalance daily)
+       (b) BH vs full_weekly  (no top-k, rebalance every N days)
+       (c) BH vs topk_daily   (enforce top-k, rebalance daily)
+       (d) BH vs topk_weekly  (enforce top-k, rebalance every N days)
 
-Why four curves?
----------------
-Training is usually done with daily rebalancing and no sparsity constraints.
-In production/front-end you might want: "hold max k positions" and/or "rebalance weekly".
-These are *evaluation-time knobs* (no retraining required) supported by TradingEnvContinuous.
+Buy-&-Hold baseline here means: equal-weight portfolio across the basket (no cash),
+held constant for the whole window. PnL is computed from RAW close prices.
+
+Checkpoint ranking score (validation)
+------------------------------------
+Checkpoint ranking uses the validation FULL_DAILY scenario (closest to training settings).
+Score is a weighted combination:
+
+    score = (1.00 * sharpe)
+          + (0.50 * total_return)
+          - (1.50 * abs(max_drawdown))
+          - (0.05 * turnover)
+
+- Sharpe is the primary objective (risk-adjusted return).
+- Total return helps separate similar Sharpe models.
+- Drawdown penalty discourages very risky policies.
+- Turnover penalty discourages excessive rebalancing.
+
+Weights are configurable as needed.
 
 Correctness rule
 ----------------
-PnL must be computed from RAW prices. We preserve Close_raw/Open_raw from CSVs.
+PnL is computed from RAW prices. Close_raw/Open_raw are preserved from CSVs.
 Feature columns are scaled for the GRU encoder, but returns use Close_raw.
 
 Outputs
 -------
-One JSON per checkpoint with:
-- checkpoint metadata
-- environment config used for evaluation
-- basket/time slice used
-- for each scenario: equity curve + metrics + turnover/rebalances
+- Validation JSONs:   out_dir/val/<ckpt>.json
+- Validation ranking: out_dir/val/top5.json
+- Test JSONs:         out_dir/test/<ckpt>.json
+- Test plots:         out_dir/test/plots/<ckpt>__<scenario>.png
 
 Notes
 -----
 - This evaluator is deterministic given (seed, date range, basket selection).
 - By default it runs a single deterministic episode per checkpoint (one basket).
-  If you want multiple baskets/episodes per checkpoint, extend `run_episode_specs`.
+  For multiple baskets/episodes per checkpoint, extend `run_episode_specs`.
 """
 
 from __future__ import annotations
@@ -54,7 +72,12 @@ import numpy as np
 import pandas as pd
 import torch
 
-from backend.rl_evaluation.evaluate_utils import compute_metrics
+# plotting (safe in CLI scripts)
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from backend.rl_evaluation.evaluate_utils import compute_metrics, canonicalize_metrics
 from backend.rl.multiasset.ppo_actor_critic_continuous import PPOActorCriticContinuous
 from backend.rl.multiasset.trading_env_continuous import TradingEnvContinuous, TradingEnvContinuousConfig
 
@@ -63,8 +86,11 @@ from backend.rl.multiasset.trading_env_continuous import TradingEnvContinuous, T
 # Defaults (override via CLI)
 # ============================================================
 
-DEFAULT_TEST_START = "2024-06-01"
+DEFAULT_VAL_START = "2024-06-01"
+DEFAULT_VAL_END = "2024-12-30"
+DEFAULT_TEST_START = "2025-01-01"
 DEFAULT_TEST_END = "2025-12-30"
+
 DEFAULT_DATA_DIR = os.path.join("backend", "data", "processed")
 
 # Keep small; actual requirements depend on checkpoint env_cfg (warmup/episode).
@@ -89,6 +115,7 @@ def _json_default(o: Any):
 
 def _atomic_write_json(path: str, payload: dict) -> None:
     tmp = path + ".tmp"
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(tmp, "w") as f:
         json.dump(payload, f, indent=2, default=_json_default)
     os.replace(tmp, path)
@@ -103,8 +130,8 @@ def load_and_prepare_data(
     data_dir: str,
     scaler_path: str,
     feature_cols: List[str],
-    test_start: str,
-    test_end: str,
+    start_date: str,
+    end_date: str,
 ) -> Dict[str, pd.DataFrame]:
     """Load *_labeled.csv files, slice date range, preserve raw prices, scale features.
 
@@ -129,12 +156,12 @@ def load_and_prepare_data(
         if "Date" in df.columns:
             df["Date"] = pd.to_datetime(df["Date"])
             df = df.sort_values("Date")
-            df = df[(df["Date"] >= test_start) & (df["Date"] <= test_end)].reset_index(drop=True)
+            df = df[(df["Date"] >= start_date) & (df["Date"] <= end_date)].reset_index(drop=True)
             df = df.set_index("Date")
         else:
             df.index = pd.to_datetime(df.index)
             df = df.sort_index()
-            df = df.loc[test_start:test_end]
+            df = df.loc[start_date:end_date]
 
         # Preserve raw prices for returns
         if "Close" not in df.columns:
@@ -191,6 +218,161 @@ def load_and_prepare_data(
             data[sym] = data[sym].iloc[:min_len].reset_index(drop=True)
 
     return data
+def compute_validation_score(metrics: Dict[str, float], turnover: float) -> float:
+    """Single scalar score for ranking checkpoints on validation.
+
+    score = 1.00*sharpe + 0.50*total_return - 1.50*abs(max_drawdown) - 0.05*turnover
+    """
+    sr = float(metrics.get("sharpe", 0.0))
+    tr = float(metrics.get("total_return", 0.0))
+    mdd = float(metrics.get("max_drawdown", 0.0))
+    return (1.00 * sr) + (0.50 * tr) - (1.50 * abs(mdd)) - (0.05 * float(turnover))
+
+
+# ============================================================
+# Baseline: equal-weight buy & hold curve (portfolio)
+# ============================================================
+
+
+def equal_weight_buy_hold_curve(
+    data_by_symbol: Dict[str, pd.DataFrame],
+    symbols: List[str],
+    *,
+    start_equity: float = 1.0,
+) -> List[float]:
+    """Equal-weight buy&hold across `symbols`, using Close_raw.
+
+    - weights are fixed at 1/N for all assets, no cash.
+    - equity evolves by portfolio daily return.
+    """
+    if not symbols:
+        return [start_equity]
+
+    # Align by row index (data_by_symbol already aligned and equal-length)
+    n = len(symbols)
+    w = np.ones(n, dtype=np.float64) / float(n)
+
+    closes = [np.asarray(data_by_symbol[s]["Close_raw"].values, dtype=np.float64) for s in symbols]
+    T = min(len(c) for c in closes)
+    if T < 2:
+        return [start_equity]
+
+    equity = float(start_equity)
+    curve = [equity]
+
+    # daily returns per asset: (P_t/P_{t-1}-1)
+    for t in range(1, T):
+        rets = np.array([(c[t] / max(c[t - 1], 1e-12)) - 1.0 for c in closes], dtype=np.float64)
+        port_ret = float(np.dot(w, rets))
+        equity *= (1.0 + port_ret)
+        curve.append(float(equity))
+
+    return curve
+
+# ============================================================
+# Baselines: momentum Top-K (fixed and dynamic)
+# ============================================================
+
+def momentum_topk_fixed_buy_hold_curve(
+    data_by_symbol: Dict[str, pd.DataFrame],
+    symbols: List[str],
+    *,
+    start_t: int,
+    end_t: int,
+    lookback: int,
+    top_k: int,
+    start_equity: float = 1.0,
+) -> List[float]:
+    """Select Top-K by lookback momentum once at start_t, then equal-weight hold to end_t (inclusive).
+
+    momentum(s) = Close_raw[start_t] / Close_raw[start_t-lookback] - 1
+
+    Returns equity curve aligned to episode steps: length = (end_t-start_t+1).
+    """
+    if not symbols:
+        return [start_equity]
+    if top_k <= 0:
+        raise ValueError("top_k must be > 0 for momentum baselines")
+    if start_t - lookback < 0:
+        raise ValueError(f"start_t={start_t} must be >= lookback={lookback}")
+
+    # close arrays (already aligned by row)
+    closes = {s: np.asarray(data_by_symbol[s]["Close_raw"].values, dtype=np.float64) for s in symbols}
+    T = min(len(c) for c in closes.values())
+    end_t = min(int(end_t), T - 1)
+
+    moms = []
+    for s in symbols:
+        c = closes[s]
+        m = (c[start_t] / max(c[start_t - lookback], 1e-12)) - 1.0
+        moms.append((s, float(m)))
+    moms.sort(key=lambda x: x[1], reverse=True)
+    picked = [s for s, _ in moms[: min(top_k, len(moms))]]
+
+    w = np.ones(len(picked), dtype=np.float64) / float(len(picked))
+
+    equity = float(start_equity)
+    curve = [equity]
+
+    for t in range(start_t + 1, end_t + 1):
+        rets = np.array([(closes[s][t] / max(closes[s][t - 1], 1e-12)) - 1.0 for s in picked], dtype=np.float64)
+        equity *= (1.0 + float(np.dot(w, rets)))
+        curve.append(float(equity))
+
+    return curve
+
+
+def momentum_topk_dynamic_curve(
+    data_by_symbol: Dict[str, pd.DataFrame],
+    symbols: List[str],
+    *,
+    start_t: int,
+    end_t: int,
+    lookback: int,
+    top_k: int,
+    rebalance_every_n: int,
+    start_equity: float = 1.0,
+) -> List[float]:
+    """Dynamic Top-K momentum: reselect Top-K every `rebalance_every_n` steps, equal-weight.
+
+    No transaction costs (baseline).
+    Returns equity curve aligned to episode steps: length = (end_t-start_t+1).
+    """
+    if not symbols:
+        return [start_equity]
+    if top_k <= 0:
+        raise ValueError("top_k must be > 0 for momentum baselines")
+    if rebalance_every_n <= 0:
+        rebalance_every_n = 1
+    if start_t - lookback < 0:
+        raise ValueError(f"start_t={start_t} must be >= lookback={lookback}")
+
+    closes = {s: np.asarray(data_by_symbol[s]["Close_raw"].values, dtype=np.float64) for s in symbols}
+    T = min(len(c) for c in closes.values())
+    end_t = min(int(end_t), T - 1)
+
+    equity = float(start_equity)
+    curve = [equity]
+
+    picked: List[str] = []
+
+    for t in range(start_t + 1, end_t + 1):
+        # rebalance at the beginning of each block: use momentum computed at (t-1)
+        if ((t - 1 - start_t) % rebalance_every_n) == 0 or not picked:
+            mom_list = []
+            for s in symbols:
+                c = closes[s]
+                m = (c[t - 1] / max(c[t - 1 - lookback], 1e-12)) - 1.0
+                mom_list.append((s, float(m)))
+            mom_list.sort(key=lambda x: x[1], reverse=True)
+            picked = [s for s, _ in mom_list[: min(top_k, len(mom_list))]]
+
+        w = np.ones(len(picked), dtype=np.float64) / float(len(picked))
+        rets = np.array([(closes[s][t] / max(closes[s][t - 1], 1e-12)) - 1.0 for s in picked], dtype=np.float64)
+        equity *= (1.0 + float(np.dot(w, rets)))
+        curve.append(float(equity))
+
+    return curve
 
 
 # ============================================================
@@ -220,77 +402,6 @@ def _filter_cfg_dict(cfg_dict: dict) -> dict:
     """Filter loaded config dict to dataclass fields (forward-compatible)."""
     fields = set(TradingEnvContinuousConfig.__dataclass_fields__.keys())  # type: ignore[attr-defined]
     return {k: v for k, v in cfg_dict.items() if k in fields}
-
-
-# ============================================================
-# Metrics helpers
-# ============================================================
-
-def total_return(curve: List[float]) -> float:
-    if not curve or len(curve) < 2:
-        return 0.0
-    a = float(curve[0])
-    b = float(curve[-1])
-    return 0.0 if a == 0.0 else (b / a) - 1.0
-
-
-def max_drawdown(curve: List[float]) -> float:
-    if not curve or len(curve) < 2:
-        return 0.0
-    arr = np.asarray(curve, dtype=np.float64)
-    running_max = np.maximum.accumulate(arr)
-    dd = (arr / np.maximum(running_max, 1e-12)) - 1.0
-    return float(np.min(dd))
-
-
-def sharpe(curve: List[float], periods: int = 252) -> float:
-    if not curve or len(curve) < 3:
-        return 0.0
-    arr = np.asarray(curve, dtype=np.float64)
-    rets = np.diff(arr) / np.maximum(arr[:-1], 1e-12)
-    mu = float(np.mean(rets))
-    sd = float(np.std(rets, ddof=1))
-    if sd <= 1e-12:
-        return 0.0
-    return float((mu / sd) * np.sqrt(float(periods)))
-
-
-def canonicalize_metrics(m: Any, curve: List[float]) -> Dict[str, float]:
-    """Normalize metric names and ensure key metrics exist."""
-    out: Dict[str, float] = {}
-
-    if isinstance(m, dict):
-        for k, v in m.items():
-            try:
-                out[str(k)] = float(v)
-            except Exception:
-                continue
-
-    # aliases
-    if "total_return" not in out:
-        for alt in ["cumulative_return", "cum_return", "return"]:
-            if alt in out:
-                out["total_return"] = float(out[alt])
-                break
-
-    if "max_drawdown" not in out:
-        for alt in ["mdd", "max_dd", "drawdown"]:
-            if alt in out:
-                out["max_drawdown"] = float(out[alt])
-                break
-
-    if "sharpe" not in out:
-        for alt in ["sharpe_ratio", "sr"]:
-            if alt in out:
-                out["sharpe"] = float(out[alt])
-                break
-
-    # ensure values exist
-    out.setdefault("total_return", total_return(curve))
-    out.setdefault("max_drawdown", max_drawdown(curve))
-    out.setdefault("sharpe", sharpe(curve))
-
-    return out
 
 
 # ============================================================
@@ -374,9 +485,6 @@ def evaluate_checkpoint_four_curves(
     else:
         env_cfg = TradingEnvContinuousConfig()
 
-    # We keep window_length/episode_length from checkpoint unless user explicitly slices start/end.
-    # NOTE: In TradingEnvContinuous, `window_length` means warmup/burn-in (min start index).
-
     # Create env once (single-env evaluation) to keep results simple and deterministic.
     env = TradingEnvContinuous(
         data_by_symbol=data_by_symbol,
@@ -399,8 +507,8 @@ def evaluate_checkpoint_four_curves(
     policy.eval()
 
     # Basket selection:
-    # - If fixed_basket provided, we use it (must match num_assets)
-    # - Else, rely on env's internal random choice, but seeded => deterministic.
+    # - Use fixed_basket when provided (must match num_assets).
+    # - Otherwise use env internal selection with deterministic seeding.
     if fixed_basket is not None and len(fixed_basket) != int(env_cfg.num_assets):
         env.close()
         raise ValueError(
@@ -460,6 +568,47 @@ def evaluate_checkpoint_four_curves(
 
 
 # ============================================================
+# Plotting helpers
+# ============================================================
+
+
+def plot_compare_curves(
+    *,
+    out_path: str,
+    title: str,
+    curves: List[Tuple[str, List[float]]],
+) -> None:
+    """Plot multiple named curves on the same axes.
+
+    `curves` is a list of (label, curve).
+    Curves are aligned by min length.
+    """
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+
+    if not curves:
+        return
+
+    L = min(len(c) for _, c in curves if c)
+    if L <= 1:
+        return
+
+    plt.figure(figsize=(10, 4))
+    for label, curve in curves:
+        if not curve:
+            continue
+        plt.plot(curve[:L], label=label)
+
+    plt.title(title)
+    plt.xlabel("Steps")
+    plt.ylabel("Equity")
+    plt.grid(True, alpha=0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+# ============================================================
 # CLI
 # ============================================================
 
@@ -468,20 +617,15 @@ def main() -> None:
 
     parser.add_argument("--ckpt", default="", help="Path to a single checkpoint .pt")
     parser.add_argument("--ckpt_dir", default="", help="Directory of checkpoints to evaluate")
-    parser.add_argument("--watch", action="store_true", help="Watch ckpt_dir for new checkpoints")
-    parser.add_argument("--poll_secs", type=int, default=10)
 
     parser.add_argument(
         "--out_dir",
         default=os.path.join("backend", "artifacts", "phase_d_continuous", "eval"),
-        help="Directory to write per-checkpoint JSON results",
+        help="Directory to write validation + test outputs",
     )
-    parser.add_argument("--out", default="", help="Output JSON path (only used with --ckpt)")
 
     parser.add_argument("--data_dir", default=DEFAULT_DATA_DIR)
     parser.add_argument("--scaler", default=os.path.join("backend", "models", "checkpoints", "scaler.pkl"))
-    parser.add_argument("--test_start", default=DEFAULT_TEST_START)
-    parser.add_argument("--test_end", default=DEFAULT_TEST_END)
     parser.add_argument(
         "--feature_cols",
         default="Open,Close,RSI,MACD,MACD_Signal,ATR,SMA_50,SMA_Ratio,OBV,ROC_10,RealizedVol_20",
@@ -489,9 +633,18 @@ def main() -> None:
     )
     parser.add_argument("--encoder", default=os.path.join("backend", "models", "checkpoints", "gru_encoder.pt"))
 
+    # Validation window (requested)
+    parser.add_argument("--val_start", default=DEFAULT_VAL_START)
+    parser.add_argument("--val_end", default=DEFAULT_VAL_END)
+
+    # Test window (requested)
+    parser.add_argument("--test_start", default=DEFAULT_TEST_START)
+    parser.add_argument("--test_end", default=DEFAULT_TEST_END)
+
     # Evaluation knobs
     parser.add_argument("--top_k", type=int, default=0, help="k for top-k scenarios (0 disables top-k)")
     parser.add_argument("--weekly_n", type=int, default=5, help="Rebalance interval for weekly scenarios")
+    parser.add_argument("--mom_lookback", type=int, default=20, help="Lookback (bars) for momentum baselines")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=0)
 
@@ -503,18 +656,6 @@ def main() -> None:
             "If omitted, env selects a basket deterministically from seed."
         ),
     )
-    parser.add_argument(
-        "--start_t",
-        type=int,
-        default=-1,
-        help="Optional eval start index (over aligned test data). -1 means default earliest valid.",
-    )
-    parser.add_argument(
-        "--end_t",
-        type=int,
-        default=-1,
-        help="Optional eval end index INCLUSIVE (over aligned test data). -1 means run to end.",
-    )
 
     args = parser.parse_args()
 
@@ -522,28 +663,30 @@ def main() -> None:
         raise ValueError("Provide either --ckpt or --ckpt_dir")
 
     fixed_basket = [s.strip() for s in args.basket.split(",") if s.strip()] or None
-
     feature_cols = [c.strip() for c in str(args.feature_cols).split(",") if c.strip()]
 
-    # Load data once (shared across checkpoints)
-    print(
-        f"[data] dir={args.data_dir} test={args.test_start}..{args.test_end} "
-        f"scaler={args.scaler} feature_cols={feature_cols}",
-        flush=True,
-    )
-    data_by_symbol = load_and_prepare_data(
-        data_dir=args.data_dir,
-        scaler_path=args.scaler,
-        feature_cols=feature_cols,
-        test_start=args.test_start,
-        test_end=args.test_end,
-    )
+    # Helpers
+    def load_data_for_window(start: str, end: str, scaler_path: str, feature_cols_local: List[str]):
+        return load_and_prepare_data(
+            data_dir=args.data_dir,
+            scaler_path=scaler_path,
+            feature_cols=feature_cols_local,
+            start_date=start,
+            end_date=end,
+        )
 
-    start_t = None if int(args.start_t) < 0 else int(args.start_t)
-    end_t = None if int(args.end_t) < 0 else int(args.end_t)
+    def eval_with_ckpt_metadata(
+        ckpt_path: str,
+        *,
+        data_window: Dict[str, pd.DataFrame],
+        feature_cols_default: List[str],
+        start: str,
+        end: str,
+    ) -> Tuple[Dict[str, Any], Dict[str, pd.DataFrame], List[str], str, str]:
+        """Evaluate ckpt using checkpoint-provided scaler/encoder/feature_cols when present.
 
-    def eval_one(ckpt_path: str, out_path: str) -> None:
-        # Prefer checkpoint-provided metadata when available (feature/scaler/encoder)
+        Returns: (result_json, data_used, feature_cols_used, scaler_path_used, encoder_path_used)
+        """
         ckpt_cpu = torch.load(ckpt_path, map_location="cpu")
 
         ckpt_feature_cols = ckpt_cpu.get("feature_cols")
@@ -552,28 +695,20 @@ def main() -> None:
             if isinstance(ckpt_feature_cols, (list, tuple))
             else [c.strip() for c in str(ckpt_feature_cols).split(",") if c.strip()]
             if isinstance(ckpt_feature_cols, str)
-            else feature_cols
+            else feature_cols_default
         )
 
         scaler_path = ckpt_cpu.get("scaler_path") if isinstance(ckpt_cpu.get("scaler_path"), str) else args.scaler
-        encoder_path = ckpt_cpu.get("gru_encoder_path") if isinstance(ckpt_cpu.get("gru_encoder_path"), str) else args.encoder
+        encoder_path = (
+            ckpt_cpu.get("gru_encoder_path")
+            if isinstance(ckpt_cpu.get("gru_encoder_path"), str)
+            else args.encoder
+        )
 
-        # If checkpoint feature_cols/scaler differ, we must reload data
-        data_local = data_by_symbol
-        if feature_cols_local != feature_cols or scaler_path != args.scaler:
-            print(
-                f"[data] reload for ckpt metadata: scaler={scaler_path} feature_cols={feature_cols_local}",
-                flush=True,
-            )
-            data_local = load_and_prepare_data(
-                data_dir=args.data_dir,
-                scaler_path=scaler_path,
-                feature_cols=feature_cols_local,
-                test_start=args.test_start,
-                test_end=args.test_end,
-            )
-
-        print(f"[Eval] ckpt={ckpt_path} -> out={out_path}", flush=True)
+        # Reload data if scaler/feature cols differ from the preloaded window
+        data_local = data_window
+        if scaler_path != args.scaler or feature_cols_local != feature_cols_default:
+            data_local = load_data_for_window(start, end, scaler_path, feature_cols_local)
 
         result = evaluate_checkpoint_four_curves(
             ckpt_path,
@@ -585,39 +720,247 @@ def main() -> None:
             top_k=int(args.top_k),
             weekly_n=int(args.weekly_n),
             fixed_basket=fixed_basket,
-            start_t=start_t,
-            end_t=end_t,
+            start_t=None,
+            end_t=None,
         )
 
-        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        _atomic_write_json(out_path, result)
-        print(f"[OK] wrote {out_path}", flush=True)
+        return result, data_local, feature_cols_local, scaler_path, encoder_path
 
-    # Single checkpoint
+    # --------------------------------------------------------
+    # SINGLE CKPT MODE (no ranking)
+    # --------------------------------------------------------
     if args.ckpt:
-        out_path = args.out or default_out_path(args.out_dir, args.ckpt)
-        eval_one(args.ckpt, out_path)
+        # evaluate on validation window (single)
+        val_data = load_data_for_window(args.val_start, args.val_end, args.scaler, feature_cols)
+        result, data_used, feature_cols_used, scaler_used, encoder_used = eval_with_ckpt_metadata(
+            args.ckpt, data_window=val_data, feature_cols_default=feature_cols, start=args.val_start, end=args.val_end
+        )
+
+        out_dir_val = os.path.join(args.out_dir, "val")
+        out_json = default_out_path(out_dir_val, args.ckpt)
+        _atomic_write_json(out_json, result)
+        print(f"[OK] wrote validation JSON: {out_json}")
         return
 
-    # Directory mode
-    os.makedirs(args.out_dir, exist_ok=True)
+    # --------------------------------------------------------
+    # DIRECTORY MODE: (1) validation + ranking, (2) test best-2 + plots
+    # --------------------------------------------------------
 
-    def run_dir_once() -> None:
-        for ckpt_path in list_checkpoints(args.ckpt_dir, include_latest=True):
-            out_path = default_out_path(args.out_dir, ckpt_path)
-            if os.path.exists(out_path):
+    ckpt_paths = list_checkpoints(args.ckpt_dir, include_latest=True)
+    if not ckpt_paths:
+        raise ValueError(f"No checkpoints found in {args.ckpt_dir}")
+
+    out_dir_val = os.path.join(args.out_dir, "val")
+    out_dir_test = os.path.join(args.out_dir, "test")
+    out_dir_plots = os.path.join(out_dir_test, "plots")
+    os.makedirs(out_dir_val, exist_ok=True)
+    os.makedirs(out_dir_test, exist_ok=True)
+    os.makedirs(out_dir_plots, exist_ok=True)
+
+    print(f"[VAL] window={args.val_start}..{args.val_end}")
+
+    # Preload validation data once (may be reloaded per-ckpt if scaler differs)
+    val_data_default = load_data_for_window(args.val_start, args.val_end, args.scaler, feature_cols)
+
+    ranking_rows: List[Dict[str, Any]] = []
+
+    for ckpt_path in ckpt_paths:
+        base = os.path.basename(ckpt_path)
+        out_json = default_out_path(out_dir_val, ckpt_path)
+        if os.path.exists(out_json):
+            # If already exists, still include it in ranking by reading it.
+            with open(out_json, "r") as f:
+                result = json.load(f)
+        else:
+            result, _, _, _, _ = eval_with_ckpt_metadata(
+                ckpt_path,
+                data_window=val_data_default,
+                feature_cols_default=feature_cols,
+                start=args.val_start,
+                end=args.val_end,
+            )
+            _atomic_write_json(out_json, result)
+
+        # Score from FULL_DAILY
+        scen = result.get("scenarios", {}).get("full_daily", {})
+        m = scen.get("metrics", {}) if isinstance(scen, dict) else {}
+        ep = scen.get("episode", {}) if isinstance(scen, dict) else {}
+        metrics = {k: float(v) for k, v in m.items()} if isinstance(m, dict) else {}
+        turnover = float(ep.get("turnover", 0.0)) if isinstance(ep, dict) else 0.0
+        score = compute_validation_score(metrics, turnover)
+
+        ranking_rows.append(
+            {
+                "checkpoint": base,
+                "checkpoint_path": ckpt_path,
+                "val_json": out_json,
+                "score": float(score),
+                "sharpe": float(metrics.get("sharpe", 0.0)),
+                "total_return": float(metrics.get("total_return", 0.0)),
+                "max_drawdown": float(metrics.get("max_drawdown", 0.0)),
+                "turnover": float(turnover),
+            }
+        )
+
+        print(
+            f"[VAL] {base} score={score:.4f} sharpe={metrics.get('sharpe', 0.0):.4f} "
+            f"ret={metrics.get('total_return', 0.0):.4f} mdd={metrics.get('max_drawdown', 0.0):.4f} "
+            f"turnover={turnover:.4f}",
+            flush=True,
+        )
+
+    # Rank and keep top-5
+    ranking_rows = sorted(ranking_rows, key=lambda x: float(x["score"]), reverse=True)
+    top5 = ranking_rows[:5]
+
+    top5_payload = {
+        "val_window": {"start": args.val_start, "end": args.val_end},
+        "score_formula": "score = 1.00*sharpe + 0.50*total_return - 1.50*abs(max_drawdown) - 0.05*turnover",
+        "top5": top5,
+    }
+
+    top5_path = os.path.join(out_dir_val, "top5.json")
+    _atomic_write_json(top5_path, top5_payload)
+
+    print("\n[TOP-5 checkpoints on validation]", flush=True)
+    for i, row in enumerate(top5, 1):
+        print(
+            f"  {i}) {row['checkpoint']} score={row['score']:.4f} sharpe={row['sharpe']:.4f} "
+            f"ret={row['total_return']:.4f} mdd={row['max_drawdown']:.4f} turnover={row['turnover']:.4f}",
+            flush=True,
+        )
+
+    # Best-2 for test
+    best2 = ranking_rows[:2]
+    if len(best2) < 1:
+        raise RuntimeError("No checkpoints available for test evaluation.")
+
+    print(f"\n[TEST] window={args.test_start}..{args.test_end} (evaluating best {min(2, len(best2))})")
+
+    # Preload test data once (may be reloaded per-ckpt if scaler differs)
+    test_data_default = load_data_for_window(args.test_start, args.test_end, args.scaler, feature_cols)
+
+    for row in best2:
+        ckpt_path = row["checkpoint_path"]
+        ckpt_base = os.path.basename(ckpt_path).replace(".pt", "")
+
+        result, data_used, _, _, _ = eval_with_ckpt_metadata(
+            ckpt_path,
+            data_window=test_data_default,
+            feature_cols_default=feature_cols,
+            start=args.test_start,
+            end=args.test_end,
+        )
+
+        out_json_test = default_out_path(out_dir_test, ckpt_path)
+        _atomic_write_json(out_json_test, result)
+        print(f"[OK] wrote test JSON: {out_json_test}")
+
+        # Determine basket used by env reset (from the first scenario episode info)
+        scen0 = result.get("scenarios", {}).get("full_daily", {})
+        ep0 = scen0.get("episode", {}) if isinstance(scen0, dict) else {}
+        symbols = list(ep0.get("symbols", [])) if isinstance(ep0, dict) else []
+        if not symbols and fixed_basket is not None:
+            symbols = fixed_basket
+
+        if not symbols:
+            print(f"[WARN] could not infer basket symbols for {ckpt_base}; skipping plots")
+            continue
+
+
+        # Determine episode index range from env episode info (use full_daily episode as reference)
+        start_t_ep = int(ep0.get("start_t", 0))
+        end_t_ep = int(ep0.get("end_t", 0))
+
+        # Baseline 1: equal-weight buy & hold (BH) on the SAME basket
+        bh_curve = equal_weight_buy_hold_curve(data_used, symbols, start_equity=1.0)
+
+        # Momentum baselines require start/end indices; fall back to BH length-1 if end_t is missing.
+        if end_t_ep <= 0:
+            end_t_ep = len(bh_curve) - 1
+
+        # Momentum baselines (Top-K, computed from same aligned data_used)
+        if int(args.top_k) > 0:
+            mom_fixed = momentum_topk_fixed_buy_hold_curve(
+                data_used,
+                symbols,
+                start_t=start_t_ep,
+                end_t=end_t_ep,
+                lookback=int(args.mom_lookback),
+                top_k=int(args.top_k),
+                start_equity=1.0,
+            )
+            mom_dynamic_weekly = momentum_topk_dynamic_curve(
+                data_used,
+                symbols,
+                start_t=start_t_ep,
+                end_t=end_t_ep,
+                lookback=int(args.mom_lookback),
+                top_k=int(args.top_k),
+                rebalance_every_n=int(args.weekly_n),
+                start_equity=1.0,
+            )
+        else:
+            mom_fixed = []
+            mom_dynamic_weekly = []
+
+        # --- (1) FULL scenarios vs BH equal-weight ---
+        for scen_name, title in [
+            ("full_daily", "BH vs PPO (full daily | 14 stocks)"),
+            ("full_weekly", f"BH vs PPO (full weekly | 14 stocks, N={int(args.weekly_n)})"),
+        ]:
+            scen = result.get("scenarios", {}).get(scen_name, {})
+            curve = scen.get("equity_curve", []) if isinstance(scen, dict) else []
+            if not curve:
                 continue
-            eval_one(ckpt_path, out_path)
 
-    if not args.watch:
-        run_dir_once()
-        return
+            plot_path = os.path.join(out_dir_plots, f"{ckpt_base}__{scen_name}.png")
+            plot_compare_curves(
+                out_path=plot_path,
+                title=title,
+                curves=[
+                    ("Buy & Hold (equal-weight)", bh_curve),
+                    (f"PPO ({scen_name})", curve),
+                ],
+            )
 
-    # Watch mode
-    print(f"[watch] ckpt_dir={args.ckpt_dir} -> out_dir={args.out_dir} poll_secs={args.poll_secs}")
-    while True:
-        run_dir_once()
-        time.sleep(max(1, int(args.poll_secs)))
+        # --- (2) TOP-K scenarios vs FIXED momentum baseline ---
+        if mom_fixed:
+            for scen_name, title in [
+                ("topk_daily", f"Momentum-fixed vs PPO (topk daily, k={int(args.top_k)}, lookback={int(args.mom_lookback)})"),
+                ("topk_weekly", f"Momentum-fixed vs PPO (topk weekly, k={int(args.top_k)}, N={int(args.weekly_n)}, lookback={int(args.mom_lookback)})"),
+            ]:
+                scen = result.get("scenarios", {}).get(scen_name, {})
+                curve = scen.get("equity_curve", []) if isinstance(scen, dict) else []
+                if not curve:
+                    continue
+
+                plot_path = os.path.join(out_dir_plots, f"{ckpt_base}__{scen_name}__mom_fixed.png")
+                plot_compare_curves(
+                    out_path=plot_path,
+                    title=title,
+                    curves=[
+                        ("Momentum Top-K (fixed buy&hold)", mom_fixed),
+                        (f"PPO ({scen_name})", curve),
+                    ],
+                )
+
+        # --- (3) Extra: dynamic momentum vs PPO topk_weekly ---
+        if mom_dynamic_weekly:
+            scen = result.get("scenarios", {}).get("topk_weekly", {})
+            curve = scen.get("equity_curve", []) if isinstance(scen, dict) else []
+            if curve:
+                plot_path = os.path.join(out_dir_plots, f"{ckpt_base}__topk_weekly__mom_dynamic.png")
+                plot_compare_curves(
+                    out_path=plot_path,
+                    title=f"Dynamic momentum vs PPO (topk weekly, k={int(args.top_k)}, N={int(args.weekly_n)}, lookback={int(args.mom_lookback)})",
+                    curves=[
+                        ("Momentum Top-K (dynamic weekly)", mom_dynamic_weekly),
+                        (f"PPO (topk_weekly)", curve),
+                    ],
+                )
+
+        print(f"[OK] wrote plots for {ckpt_base} -> {out_dir_plots}")
 
 
 if __name__ == "__main__":

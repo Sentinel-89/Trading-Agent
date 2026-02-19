@@ -1,4 +1,5 @@
 # ============================================================
+# trading_env.py
 #
 # TradingEnv v1 / v2 / v3 / v4 / v5
 #
@@ -7,7 +8,7 @@
 
 # ============================================================
 
-from typing import Dict, Tuple, Optional, Any
+from typing import Dict, Optional, Any
 
 import numpy as np
 import pandas as pd
@@ -62,15 +63,16 @@ class TradingEnv(gym.Env):
         window_length: Optional[int] = 252,
         random_start: bool = True,
         transaction_cost: float = 0.001,
-        entry_transaction_cost: Optional[float] = None,  # if None, use transaction_cost
+        entry_transaction_cost: Optional[float] = None,  # if None, then same as transaction_cost
         holding_penalty: float = 0.0,  # per-step penalty while holding a position
         device: str = "cpu",
-        max_holding_period: int = 252,   
-        initial_cash: float = 1.0,       # used in v4/v5 only (normalized)
+        max_holding_period: int = 252,   # used in v3+
+        initial_cash: float = 1.0,       # used in v4 only (normalized)
         use_action_mask: bool = True,    # when True, info["action_mask"] reflects valid actions
-        invalid_action_penalty: float = 0.001,  # optional penalty when use_action_mask=False
+        invalid_action_penalty: float = 0.001  # optional penalty when use_action_mask=False
     ):
         super().__init__()
+        # Initialize environment configuration, data handles, and runtime state.
 
         # --------------------------------------------------------
         # Environment version guard (Axis A)
@@ -102,9 +104,7 @@ class TradingEnv(gym.Env):
             assert self.window_length is not None
 
         self.transaction_cost = transaction_cost
-        self.entry_transaction_cost = float(
-            transaction_cost if entry_transaction_cost is None else entry_transaction_cost
-        )
+        self.entry_transaction_cost = float(transaction_cost if entry_transaction_cost is None else entry_transaction_cost)
         self.holding_penalty = float(holding_penalty)
         self.device = device
         self.use_action_mask = bool(use_action_mask)
@@ -184,11 +184,6 @@ class TradingEnv(gym.Env):
 
         self.max_holding_period = max_holding_period
 
-        # Diagnostics (initialized on reset)
-        self.executed_buys = 0
-        self.executed_sells = 0
-        self.invalid_actions = 0
-
     # ============================================================
     # Core Gym API
     # ============================================================
@@ -218,9 +213,10 @@ class TradingEnv(gym.Env):
         seed=None,
         options: Optional[Any] = None,
         symbol: Optional[str] = None,
-    ) -> Tuple[np.ndarray, dict]:
+    ) -> np.ndarray:
 
         super().reset(seed=seed)
+        # Build a new episode state and return first observation plus metadata.
 
         # --------------------------------------------------------
         # Symbol selection
@@ -237,6 +233,7 @@ class TradingEnv(gym.Env):
                 opt_symbol = options[0].get("symbol")
 
         if opt_symbol is None:
+            # Use Gymnasium-provided RNG (seeded via super().reset(seed=...))
             self.current_symbol = str(self.np_random.choice(self.symbols))
         else:
             assert opt_symbol in self.data_by_symbol, f"Unknown symbol: {opt_symbol}"
@@ -259,7 +256,9 @@ class TradingEnv(gym.Env):
             start_step = min_start
             last_step = max_step
         else:
+            # rolling window episode with fixed length
             assert self.window_length is not None
+            # window_length counts the number of timesteps (inclusive range)
             max_start = max_step - int(self.window_length) + 1
             if max_start < min_start:
                 raise ValueError(
@@ -267,6 +266,7 @@ class TradingEnv(gym.Env):
                     f"(rows={len(self.df)})."
                 )
             if self.random_start:
+                # integers() is high-exclusive; +1 keeps the original inclusive behavior
                 start_step = int(self.np_random.integers(min_start, max_start + 1))
             else:
                 start_step = min_start
@@ -283,7 +283,7 @@ class TradingEnv(gym.Env):
         self.entry_step = None
 
         # --------------------------------------------------------
-        # Reset portfolio state (v4/v5)
+        # Reset portfolio state (v4)
         # --------------------------------------------------------
         self.cash = self.initial_cash
         self.equity = self.initial_cash
@@ -317,6 +317,7 @@ class TradingEnv(gym.Env):
 
     def step(self, action: int):
         assert self.df is not None
+        # Apply action, update trade/account state, and advance one environment step.
 
         reward = 0.0
         terminated = False
@@ -352,6 +353,7 @@ class TradingEnv(gym.Env):
                 self.max_drawdown_in_trade = 0.0
                 self.trade_peak_equity = self.equity
                 self.executed_buys += 1
+            # else: no-op when already long
 
         # SELL
         elif action == 2:
@@ -371,9 +373,10 @@ class TradingEnv(gym.Env):
                 self.position = 0
                 self.entry_price = None
                 self.entry_step = None
+            # else: no-op when flat
 
         # --------------------------------------------------------
-        # Portfolio update
+        # Portfolio update 
         # --------------------------------------------------------
         if self.position == 1:
             assert self.entry_price is not None
@@ -385,7 +388,7 @@ class TradingEnv(gym.Env):
         self.equity_peak = max(self.equity_peak, self.equity)
 
         # --------------------------------------------------------
-        # Update per-trade max drawdown
+        # Update per-trade max drawdown 
         # --------------------------------------------------------
         if self.position == 1:
             assert self.trade_peak_equity is not None
@@ -397,7 +400,10 @@ class TradingEnv(gym.Env):
                 if self.trade_peak_equity > 0.0
                 else 0.0
             )
-            self.max_drawdown_in_trade = min(self.max_drawdown_in_trade, drawdown)
+            self.max_drawdown_in_trade = min(
+                self.max_drawdown_in_trade,
+                drawdown,
+            )
 
         # --------------------------------------------------------
         # Small unrealized reward shaping (v5 only)
@@ -418,23 +424,28 @@ class TradingEnv(gym.Env):
         # --------------------------------------------------------
         forced_liquidation = False
         if self.position == 1 and self.current_step == self.last_step:
+            # Close the position at the final price so the episode has a realized outcome.
             assert self.entry_price is not None
 
             raw_return = (curr_price - self.entry_price) / self.entry_price
+            # Realize PnL into cash (always apply transaction cost on closing)
             self.cash *= (1.0 + raw_return - self.transaction_cost)
 
-            # If the agent didn't SELL explicitly on this step, give terminal reward here.
+            # Add terminal reward if the agent did not explicitly SELL.
+            # If the agent did SELL on this same step, reward has already been assigned above.
             if action != 2:
                 reward += raw_return - self.transaction_cost
                 if self.enable_drawdown_shaping:
                     reward -= self.lambda_drawdown * abs(self.max_drawdown_in_trade)
 
+            # Reset trade state
             self.trade_peak_equity = None
             self.position = 0
             self.entry_price = None
             self.entry_step = None
 
             forced_liquidation = True
+            # Forced liquidation counts as an executed SELL
             self.executed_sells += 1
 
         # --------------------------------------------------------
@@ -444,11 +455,7 @@ class TradingEnv(gym.Env):
         if self.current_step > self.last_step:
             truncated = True
 
-        obs = (
-            self._get_observation()
-            if not truncated
-            else np.zeros(self.observation_space.shape, dtype=np.float32)
-        )
+        obs = self._get_observation() if not truncated else np.zeros(self.observation_space.shape, dtype=np.float32)
 
         info = {
             "symbol": self.current_symbol,
@@ -471,6 +478,7 @@ class TradingEnv(gym.Env):
 
     def _get_observation(self) -> np.ndarray:
         assert self.df is not None
+        # Encode the rolling feature window and append version-specific state features.
 
         window = self.df.loc[
             self.current_step - 29 : self.current_step,
@@ -501,8 +509,10 @@ class TradingEnv(gym.Env):
             assert self.entry_price is not None
 
             holding_time = self.current_step - self.entry_step
-            time_in_trade = min(holding_time / self.max_holding_period, 1.0)
-
+            time_in_trade = min(
+                holding_time / self.max_holding_period,
+                1.0,
+            )
             curr_price = float(self.df.loc[self.current_step, "Close_raw"])
             unrealized = (curr_price - self.entry_price) / self.entry_price
         else:

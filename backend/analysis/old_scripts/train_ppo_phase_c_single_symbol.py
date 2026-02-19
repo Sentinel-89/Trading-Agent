@@ -1,25 +1,28 @@
-# backend/rl/train_ppo_single_symbol_multi_episode_smoke.py
+# backend/rl/train_ppo_phase_c_single_symbol.py
 
 """
-PPO single-symbol multi-episode smoke training.
+Phase-C PPO training (single symbol).
 
 Purpose:
-- Validate PPO wiring over multiple episodes
-- Inspect entropy decay and action frequency drift
-- Confirm learning dynamics remain stable
+- Controlled PPO training under frozen protocol
+- Structured logging for analysis and reporting
+- Support v3 vs v4.1 comparison
 
 NOT intended for:
-- performance evaluation
 - hyperparameter tuning
-- multi-symbol training
+- architectural experimentation
 """
 
 import os
+import json
+import argparse
+import random
 import torch
 import joblib
 import pandas as pd
+import numpy as np
 
-from backend.rl.trading_env_n import TradingEnv
+from backend.rl.trading_env import TradingEnv
 from backend.rl.ppo_actor_critic import PPOActorCritic
 from backend.rl.ppo_config import PPOConfig
 from backend.rl.rollout_buffer import RolloutBuffer
@@ -27,34 +30,54 @@ from backend.rl.gae import compute_gae
 from backend.rl.ppo_trainer import ppo_update
 
 
-def train_single_symbol():
-    """
-    Multi-episode PPO smoke training (single symbol).
+# ============================================================
+# Utilities
+# ============================================================
 
-    Each episode:
-    - collects one full rollout
-    - performs one PPO update
-    - logs diagnostics
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-    Goal:
-    - Validate learning dynamics over time
+
+# ============================================================
+# Phase-C training
+# ============================================================
+
+def train_phase_c(
+    env_version: str,
+    num_episodes: int,
+    seed: int,
+    output_dir: str,
+):
     """
+    Phase-C PPO training (single symbol).
+
+    - One PPO update per episode
+    - Fixed rollout length (rolling window)
+    - JSON logging (one file per run)
+    """
+
+    set_seed(seed)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ============================================================
-    # PPO configuration
+    # PPO configuration (FROZEN)
     # ============================================================
 
     config = PPOConfig()
 
-    NUM_EPISODES = 5  # smoke-level only
-
     # ============================================================
-    # Paths (identical to trading_env smoke test)
+    # Paths
     # ============================================================
 
-    BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Dynamically append the version subfolder to the artifact directory
+    VERSIONED_OUTPUT_DIR = os.path.join(output_dir, env_version)
 
     DATA_DIR = os.path.join(BASE_DIR, "data", "processed")
     CHECKPOINT_DIR = os.path.join(BASE_DIR, "models", "checkpoints")
@@ -89,17 +112,17 @@ def train_single_symbol():
         data_by_symbol[symbol] = df
 
     # ============================================================
-    # Environment (configure here!)
+    # Environment
     # ============================================================
 
     env = TradingEnv(
-    data_by_symbol=data_by_symbol,
-    encoder_ckpt_path=ENCODER_CKPT_PATH,
-    feature_cols=feature_cols,
-    env_version="v3",                 # Axis A (explicit)
-    episode_mode="rolling_window",    # Axis B (explicit)
-    window_length=252,
-    device=device,
+        data_by_symbol=data_by_symbol,
+        encoder_ckpt_path=ENCODER_CKPT_PATH,
+        feature_cols=feature_cols,
+        env_version=env_version,           # v3 or v4.1
+        episode_mode="rolling_window",
+        window_length=252,
+        device=device,
     )
 
     obs, info = env.reset()
@@ -109,25 +132,39 @@ def train_single_symbol():
     # ============================================================
 
     policy = PPOActorCritic(latent_dim=obs.shape[0]).to(device)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.Adam(
+        policy.parameters(),
+        lr=config.learning_rate,
+    )
 
     # ============================================================
-    # Episode-level logs
+    # Run-level log
     # ============================================================
 
-    episode_rewards = []
-    episode_entropies = []
-    episode_action_freqs = []
+    run_log = {
+        "env_version": env_version,
+        "seed": seed,
+        "num_episodes": num_episodes,
+        "episodes": [],
+    }
 
     # ============================================================
-    # Multi-episode loop
+    # Phase-C training loop
     # ============================================================
 
-    for ep in range(NUM_EPISODES):
+    for ep in range(num_episodes):
 
         obs, info = env.reset()
         buffer = RolloutBuffer()
         done = False
+
+        # --------------------------------------------------------
+        # v4.1 drawdown diagnostics (per episode)
+        # --------------------------------------------------------
+
+        total_drawdown_penalty = 0.0
+        max_drawdowns = []
+        num_sells = 0
 
         # --------------------------------------------------------
         # Rollout collection
@@ -141,8 +178,20 @@ def train_single_symbol():
                 action, log_prob, value = policy.act(latent)
 
             action_int = int(action.item())
-            next_obs, reward, terminated, truncated, _ = env.step(action_int)
+            next_obs, reward, terminated, truncated, info = env.step(action_int)
             done = terminated or truncated
+
+            # ----------------------------------------------------
+            # v4.1 SELL diagnostics
+            # ----------------------------------------------------
+
+            if env_version == "v4.1" and action_int == 2 and info["position"] == 0:
+                d_max = env.max_drawdown_in_trade
+                penalty = env.lambda_drawdown * abs(d_max)
+
+                total_drawdown_penalty += penalty
+                max_drawdowns.append(d_max)
+                num_sells += 1
 
             buffer.add(
                 latent=latent,
@@ -205,36 +254,70 @@ def train_single_symbol():
             "SELL": float((actions == 2).mean()),
         }
 
-        episode_rewards.append(rewards.sum())
-        episode_entropies.append(stats["entropy"])
-        episode_action_freqs.append(action_freq)
+        episode_log = {
+            "episode": ep + 1,
+            "steps": len(actions),
+            "total_reward": float(rewards.sum()),
+            "entropy": float(stats["entropy"]),
+            "action_freq": action_freq,
+        }
+
+        if env_version == "v4.1":
+            episode_log.update({
+                "num_sells": num_sells,
+                "mean_drawdown_penalty": (
+                    total_drawdown_penalty / num_sells
+                    if num_sells > 0 else 0.0
+                ),
+                "max_drawdown_per_trade": max_drawdowns,
+            })
+
+        run_log["episodes"].append(episode_log)
 
         print(
-            f"Episode {ep+1:02d} | "
-            f"steps={len(actions):4d} | "
-            f"reward={rewards.sum():+.4f} | "
-            f"entropy={stats['entropy']:.4f} | "
+            f"Ep {ep+1:03d} | "
+            f"reward={episode_log['total_reward']:+.4f} | "
+            f"entropy={episode_log['entropy']:.4f} | "
             f"H={action_freq['HOLD']:.2f} "
             f"B={action_freq['BUY']:.2f} "
             f"S={action_freq['SELL']:.2f}"
         )
 
     # ============================================================
-    # End-of-run summary
+    # Write JSON log
     # ============================================================
 
-    print("\n================ MULTI-EPISODE SUMMARY ================\n")
+    # This now creates 'backend/artifacts/phase_c/v4.1/' (example)
+    os.makedirs(VERSIONED_OUTPUT_DIR, exist_ok=True)
 
-    for i in range(NUM_EPISODES):
-        print(
-            f"Ep {i+1:02d} | "
-            f"reward={episode_rewards[i]:+.4f} | "
-            f"entropy={episode_entropies[i]:.4f} | "
-            f"{episode_action_freqs[i]}"
-        )
+    out_path = os.path.join(
+        VERSIONED_OUTPUT_DIR,
+        f"phase_c_{env_version}_seed{seed}.json",
+    )
 
-    print("\nSmoke test completed successfully.")
+    with open(out_path, "w") as f:
+        json.dump(run_log, f, indent=2)
 
+    print(f"\nPhase-C run completed. Log written to:\n{out_path}\n")
+
+# ============================================================
+# CLI
+# ============================================================
 
 if __name__ == "__main__":
-    train_single_symbol()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--env_version", type=str, default="v4.1")
+    parser.add_argument("--num_episodes", type=int, default=50)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--output_dir", type=str, default="backend/artifacts/phase_c")
+
+    args = parser.parse_args()
+
+    train_phase_c(
+        env_version=args.env_version,
+        num_episodes=args.num_episodes,
+        seed=args.seed,
+        output_dir=args.output_dir,
+    )

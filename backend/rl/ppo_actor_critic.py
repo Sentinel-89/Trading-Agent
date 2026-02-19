@@ -75,7 +75,7 @@ class PPOActorCritic(nn.Module):
     def _masked_dist(self, logits: torch.Tensor, action_mask: torch.Tensor | None):
         """
         Create a categorical distribution.
-        If action_mask is None, behave like standard PPO (no masking but penalty for invalid ops).
+        If action_mask is None, behave like standard PPO (no masking).
         """
         if action_mask is None:
             return Categorical(logits=logits)
@@ -84,7 +84,7 @@ class PPOActorCritic(nn.Module):
         masked_logits = logits.masked_fill(~mask, -1e9)
         return Categorical(logits=masked_logits)
 
-    def get_dist_and_value(self, obs: torch.Tensor, action_mask: torch.Tensor| None = None):
+    def get_dist_and_value(self, obs: torch.Tensor, action_mask: torch.Tensor):
         """
         Get masked policy distribution and value without sampling.
 

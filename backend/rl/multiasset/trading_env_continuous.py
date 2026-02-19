@@ -29,8 +29,9 @@ class TradingEnvContinuousConfig:
     # --------------------------------------------------------
     # Episode slicing
     # --------------------------------------------------------
-
-    window_length: int = 30
+    # NOTE: Despite the name, this is a *warmup/burn-in* constraint (min start index).
+    # Set to 0 to disable feature burn-in; GRU still enforces `gru_window - 1`.
+    window_length: int = 0
 
     # Number of tradable steps in an episode (training mode). If <= 0, run as long as possible.
     episode_length: int = 256
@@ -79,6 +80,7 @@ class TradingEnvContinuous(gym.Env):
         gru_hidden_size: int = 64,
     ):
         super().__init__()
+        # Initialize market universe, frozen encoder, spaces, and episode state.
 
         self.data_by_symbol = data_by_symbol
         self.feature_cols = feature_cols
@@ -156,6 +158,7 @@ class TradingEnvContinuous(gym.Env):
     # ============================================================
 
     def _load_frozen_encoder(self, ckpt_path: str, input_size: int, hidden_size: int) -> GRUEncoder:
+        # Load encoder weights once and disable gradient updates.
         enc = GRUEncoder(
             input_size=int(input_size),
             hidden_size=int(hidden_size),
@@ -180,6 +183,7 @@ class TradingEnvContinuous(gym.Env):
 
     def _select_symbols(self, options: Optional[dict]) -> None:
         """Pick the symbols to trade for this episode."""
+        # Resolve basket symbols and validate required data columns.
         all_syms = list(self.data_by_symbol.keys())
         if not all_syms:
             raise ValueError("data_by_symbol is empty")
@@ -255,6 +259,7 @@ class TradingEnvContinuous(gym.Env):
 
     def _action_to_weights(self, action: np.ndarray) -> np.ndarray:
         """Convert raw logits -> valid long-only weights."""
+        # Map unconstrained logits to normalized portfolio weights.
         a = np.asarray(action, dtype=np.float32).reshape(-1)
         if a.shape[0] != self.action_dim:
             raise ValueError(f"Expected action_dim={self.action_dim}, got {a.shape[0]}")
@@ -278,6 +283,7 @@ class TradingEnvContinuous(gym.Env):
 
     def _get_obs(self) -> np.ndarray:
         """Observation = [GRU latent per asset] + [current weights] + [equity]."""
+        # Build observation from per-asset latent features and portfolio state.
         feats: List[np.ndarray] = []
 
         w = int(self.gru_window)
@@ -313,6 +319,7 @@ class TradingEnvContinuous(gym.Env):
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
+        # Configure episode range, reset portfolio state, and return initial observation.
         if seed is not None:
             self._rng = np.random.default_rng(seed)
 
@@ -434,9 +441,10 @@ class TradingEnvContinuous(gym.Env):
         return obs, info
 
     def step(self, action):
+        # Apply action weights, update portfolio equity, and advance one timestep.
         # Convert logits to valid target weights.
-        # If rebalance_every_n > 1, we only apply a new portfolio on rebalance steps;
-        # otherwise we hold the previous weights (no turnover / cost).
+        # For rebalance_every_n > 1, portfolio updates occur only on rebalance steps.
+        # Non-rebalance steps keep previous weights and avoid turnover costs.
         do_rebalance = (self._steps_since_reset % self._rebalance_every_n) == 0
         if do_rebalance:
             w_target = self._action_to_weights(action)

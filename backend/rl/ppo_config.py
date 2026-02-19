@@ -8,7 +8,8 @@ class PPOConfig:
     """
     Central configuration object for PPO + GAE.
 
-    RL hyperparameters.
+    This file intentionally owns *all* RL hyperparameters.
+    No magic numbers should appear inside trainers, buffers, or GAE code.
     """
 
     # Discounting
@@ -18,7 +19,7 @@ class PPOConfig:
     # PPO clipping
     clip_eps: float = 0.2
 
-    # KL control (used by ppo_trainer_kl.py)
+    # Optional KL control (used by ppo_trainer_kl.py)
     # - If target_kl is None, KL early-stop is disabled
     target_kl: float | None = None
     kl_cutoff_multiplier: float = 1.5
@@ -38,6 +39,9 @@ class PPOConfig:
     batch_size: int = 64
 
 
+# ----------------------------
+# Recommended presets
+# ----------------------------
 
 def make_discrete_config() -> PPOConfig:
     """Defaults are tuned for discrete policies (buy/hold/sell)."""
@@ -50,7 +54,7 @@ def make_discrete_config() -> PPOConfig:
         kl_cutoff_multiplier=1.5,
         value_coef=0.5,
         entropy_coef=0.01,
-        # Slightly lower LR is stable for discrete action markets
+        # Slightly lower LR is more stable for discrete action markets
         learning_rate=2e-4,
         max_grad_norm=0.5,
         # Fewer epochs reduces overfitting to one rollout (helps KL stability)

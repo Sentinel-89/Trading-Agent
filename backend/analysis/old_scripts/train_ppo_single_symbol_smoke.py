@@ -45,7 +45,7 @@ import torch
 import joblib
 import pandas as pd
 
-from backend.rl.trading_env_n import TradingEnv
+from backend.rl.trading_env import TradingEnv
 from backend.rl.ppo_actor_critic import PPOActorCritic
 from backend.rl.ppo_config import PPOConfig
 from backend.rl.rollout_buffer import RolloutBuffer

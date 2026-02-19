@@ -1,58 +1,36 @@
 import torch
 
 
+
 class RolloutBuffer:
     """
-    PPO Rollout Buffer (Parallel-Environment, v5)
+    PPO Rollout Buffer (Vectorized Environments)
 
-    It acts as a temporary container between:
-      - Environment rollouts
-      - PPO optimization (policy + value updates)
+    Stores on-policy rollout data collected from N parallel environments
+    over T timesteps, then flattens (T, N) → (T×N) for PPO updates.
 
     Responsibilities:
-      - Preserve temporal order
-      - Preserve episode boundaries (done flags)
-      - Provide stacked tensors for PPO loss computation
+      - Store batched rollout data
+      - Preserve done masks for GAE
+      - Provide flattened tensors for PPO
 
     Non-responsibilities:
       - No advantage computation
       - No normalization
-      - No model updates
+      - No PPO optimization
     """
 
     def __init__(self):
-        """
-        Initialize empty storage lists.
-        Data is appended step-by-step during environment interaction.
-        """
-
-        # Latent observations produced by the frozen GRU encoder 
         self.observations = []
-
-        # Actions sampled from the policy */
-        self.actions = []
-
         self.action_masks = []          # mask actually used by the policy
-        self.true_action_masks = [] 
-
-        # Log-probabilities of sampled actions (for PPO ratio) 
+        self.true_action_masks = []     # always-correct env constraint mask (optional)
+        self.actions = []
         self.log_probs = []
-
-        # Value function estimates at each step 
         self.values = []
-
-        # Scalar rewards returned by the environment 
         self.rewards = []
-
-        # Episode termination flags 
         self.dones = []
 
     def clear(self):
-        """
-        Clear all stored rollout data.
-        Called after each PPO update cycle.
-        """
-
         self.observations.clear()
         self.action_masks.clear()
         self.true_action_masks.clear()
@@ -62,50 +40,51 @@ class RolloutBuffer:
         self.rewards.clear()
         self.dones.clear()
 
-    def add(
+    def add_batch(
         self,
         observations: torch.Tensor,
-        action: torch.Tensor,
         action_masks: torch.Tensor,
-        log_prob: torch.Tensor,
-        value: torch.Tensor,
-        reward: float,
-        done: bool,
+        actions: torch.Tensor,
+        log_probs: torch.Tensor,
+        values: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
         true_action_masks: torch.Tensor | None = None,
-
     ):
         """
-        Add one environment step to the rollout buffer.
+        Add one timestep of data from N parallel environments.
 
-        Parameters:
-        - latent   : GRU latent state used as policy input (shape: [latent_dim])
-        - action   : Action sampled from policy (scalar tensor)
-        - log_prob : Log-probability of the sampled action
-        - value    : Value function estimate for the current state
-        - reward   : Environment reward (float)
-        - done     : Episode termination flag
+        Shapes:
+          observations : (N, obs_dim)
+          action_masks : (N, action_dim)
+          actions      : (N,)
+          log_probs    : (N,)
+          values       : (N,)
+          rewards      : (N,)
+          dones        : (N,)
+          true_action_masks : (N, action_dim)  (optional; env constraint mask)
         """
 
-        # Store detached tensors to avoid backprop through rollout collection
         self.observations.append(observations.detach().to(dtype=torch.float32))
         self.action_masks.append(action_masks.detach().to(dtype=torch.float32))
         if true_action_masks is not None:
             self.true_action_masks.append(true_action_masks.detach().to(dtype=torch.float32))
-        self.actions.append(action.detach())  # keep integer dtype
-        self.log_probs.append(log_prob.detach().to(dtype=torch.float32))
-        self.values.append(value.detach().to(dtype=torch.float32))
-        self.rewards.append(reward.detach().to(dtype=torch.float32))
-        self.dones.append(done.detach().to(dtype=torch.float32))
-
-    def size(self) -> int:
-        """
-        Return the number of stored timesteps in the buffer.
-        """
-
-        return len(self.rewards)
+        self.actions.append(actions.detach())  # keep integer dtype
+        self.log_probs.append(log_probs.detach().to(dtype=torch.float32))
+        self.values.append(values.detach().to(dtype=torch.float32))
+        self.rewards.append(rewards.detach().to(dtype=torch.float32))
+        self.dones.append(dones.detach().to(dtype=torch.float32))
 
     def get_tensors(self, flatten: bool = True):
+        """
+        Stack rollout data into tensors.
 
+        If flatten=True:
+          (T, N, ...) → (T×N, ...)
+
+        Returns:
+          dict of tensors ready for PPO update.
+        """
 
         observations = torch.stack(self.observations)  # (T, N, D)
         action_masks = torch.stack(self.action_masks)  # (T, N, A)

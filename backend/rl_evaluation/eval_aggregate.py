@@ -119,7 +119,7 @@ def aggregate(eval_dir: str) -> None:
         payload = load_eval_json(pth)
         ckpt, summ, per_symbol = _normalize_payload(payload, pth)
 
-        # Skip files that are not in an eval-json format we understand
+        # Skip files that do not match supported evaluation JSON formats.
         if not per_symbol:
             continue
 
@@ -145,12 +145,12 @@ def aggregate(eval_dir: str) -> None:
                 "action_abs_turnover": m.get("action_abs_turnover"),
                 "action_abs_mean": m.get("action_abs_mean"),
 
-                # optional buy&hold block (present in your discrete eval json)
+                # Optional buy-and-hold block (discrete evaluation format).
                 "buy_hold_return": bh.get("return"),
                 "buy_hold_sharpe": bh.get("sharpe"),
                 "buy_hold_max_drawdown": bh.get("max_drawdown"),
 
-                # optional trades block (present in your discrete eval json)
+                # Optional trades block (discrete evaluation format).
                 "buys": tr.get("buys") if isinstance(tr, dict) else None,
                 "sells": tr.get("sells") if isinstance(tr, dict) else None,
                 "holds": tr.get("holds") if isinstance(tr, dict) else None,
