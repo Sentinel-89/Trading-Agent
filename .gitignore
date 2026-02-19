@@ -7,3 +7,4 @@ backend/utils/__pycache__/
 backend/utils/test_kite_auth
 # Experiment artifacts
 
+.DS_Store
