@@ -22,8 +22,8 @@ import joblib
 import pandas as pd
 import numpy as np
 
-from backend.services.trading_env import TradingEnv
-from backend.models.ppo_actor_critic import PPOActorCritic
+from backend.rl.trading_env import TradingEnv
+from backend.rl.ppo_actor_critic import PPOActorCritic
 from backend.rl.ppo_config import PPOConfig
 from backend.rl.rollout_buffer import RolloutBuffer
 from backend.rl.gae import compute_gae

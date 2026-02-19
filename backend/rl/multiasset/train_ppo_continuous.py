@@ -23,7 +23,6 @@ def compute_gae(
       - dones:   shape (T, N) or (T*N,)
       - num_envs: number of parallel environments
 
-    Advantages are NOT normalized here.
     """
 
     device = values.device

@@ -4,3 +4,8 @@ pandas
 numpy
 kiteconnect
 scikit-learn
+python-dotenv
+talib
+torch
+matplotlib
+gymnasium
